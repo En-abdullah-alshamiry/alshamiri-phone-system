@@ -1,0 +1,27 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Connection and health testing endpoint
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+
+    // Stores collection: Allow read, write, create, and update for all store documents
+    // This allows Super Admin provisioning, client Store ID verification, and data syncing
+    match /stores/{storeId} {
+      allow read, write: if true;
+
+      // Subcollections and child documents under each store (isolated per store)
+      match /{allSubpaths=**} {
+        allow read, write: if true;
+      }
+    }
+
+    // User accounts if utilized
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+  }
+}

@@ -1,6 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { AppData, CashboxTransaction, Currency, CurrencyExchangeRecord, CustomerAccount, ExpenseVoucher, MaintenanceStatus, MaintenanceTicket, Product, PurchaseInvoice, ReceiptVoucher, SaleInvoice, StoreInfo, ExchangeRates } from './types';
+import { User, onAuthStateChanged } from 'firebase/auth';
+import { AppData, CashboxTransaction, Currency, CurrencyExchangeRecord, CustomerAccount, ExpenseVoucher, MaintenanceStatus, MaintenanceTicket, Product, PurchaseInvoice, ReceiptVoucher, SaleInvoice, StoreInfo, ExchangeRates, UserRole } from './types';
 import { getStoredData, saveData } from './services/storage';
+import {
+  auth,
+  testFirebaseConnection,
+  syncStoreDataToCloud,
+  subscribeToStoreCloud,
+  fetchStoreDataFromCloud,
+} from './services/firebase';
 import { Sidebar, NavTab } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { DashboardView } from './components/dashboard/DashboardView';
@@ -11,16 +19,98 @@ import { InventoryView } from './components/inventory/InventoryView';
 import { AccountingView } from './components/accounting/AccountingView';
 import { SettingsView } from './components/settings/SettingsView';
 import { PrintInvoiceModal } from './components/common/PrintInvoiceModal';
+import { StoreCloudModal } from './components/common/StoreCloudModal';
+import { MasterAdminModal } from './components/common/MasterAdminModal';
+import { RoleAuthModal } from './components/common/RoleAuthModal';
+import { StoreLoginGate } from './components/auth/StoreLoginGate';
+import { StoreLockScreen } from './components/common/StoreLockScreen';
+import { SupportModal } from './components/common/SupportModal';
 
 export default function App() {
-  const [data, setData] = useState<AppData>(() => getStoredData());
+  // 1. Firebase Multi-Store Cloud State: Determine store ID from URL or storage
+  const [currentStoreId, setCurrentStoreId] = useState<string>(() => {
+    try {
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlStore = urlParams.get('store');
+      if (urlStore && urlStore.trim()) {
+        localStorage.setItem('falcon_active_store_id', urlStore.trim());
+        return urlStore.trim();
+      }
+    } catch (e) {
+      // ignore
+    }
+    return localStorage.getItem('falcon_active_store_id') || 'store-shamiri-01';
+  });
+
+  const [data, setData] = useState<AppData>(() => getStoredData(currentStoreId));
+  const [isCloudLoaded, setIsCloudLoaded] = useState(false);
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [currentRole, setCurrentRole] = useState<UserRole>(() => {
+    const saved = sessionStorage.getItem('falcon_session_role');
+    if (saved === 'admin' || saved === 'cashier' || saved === 'technician') {
+      return saved as UserRole;
+    }
+    return 'admin';
+  });
+  const [isSessionAuthenticated, setIsSessionAuthenticated] = useState<boolean>(() => {
+    return sessionStorage.getItem('falcon_auth_session') === 'true';
+  });
+  const [isSupportModalOpen, setIsSupportModalOpen] = useState(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [cloudConnected, setCloudConnected] = useState(true);
+  const [isStoreCloudModalOpen, setIsStoreCloudModalOpen] = useState(false);
+  const [isMasterAdminOpen, setIsMasterAdminOpen] = useState(false);
+  const [isRoleModalOpen, setIsRoleModalOpen] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   // Modals state
   const [isPurchaseModalOpen, setIsPurchaseModalOpen] = useState(false);
   const [isExchangeModalOpen, setIsExchangeModalOpen] = useState(false);
   const [selectedMaintenanceTicketId, setSelectedMaintenanceTicketId] = useState<string | null>(null);
+
+  // Listen for hash route #/super-admin
+  useEffect(() => {
+    const checkHash = () => {
+      if (window.location.hash === '#/super-admin' || window.location.hash.startsWith('#/super-admin')) {
+        setIsMasterAdminOpen(true);
+      }
+    };
+    checkHash();
+    window.addEventListener('hashchange', checkHash);
+    return () => window.removeEventListener('hashchange', checkHash);
+  }, []);
+
+  // Check if store subscription is suspended or expired
+  const isStoreSuspendedOrExpired = (() => {
+    try {
+      const allStoresRaw = localStorage.getItem('falcon_all_client_stores');
+      if (allStoresRaw) {
+        const parsed = JSON.parse(allStoresRaw);
+        if (Array.isArray(parsed)) {
+          const matched = parsed.find((s: any) => s.storeId === currentStoreId);
+          if (matched) {
+            if (matched.status === 'suspended') return true;
+            if (matched.expiresAt && new Date(matched.expiresAt).getTime() < Date.now()) {
+              return true;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    const sub = data.storeInfo?.subscription;
+    if (sub) {
+      if (sub.status === 'suspended' || sub.status === 'expired') return true;
+      if (sub.expiresAt && new Date(sub.expiresAt).getTime() < Date.now()) return true;
+      if (sub.validUntil && new Date(sub.validUntil).getTime() < Date.now()) return true;
+      if (typeof sub.daysRemaining === 'number' && sub.daysRemaining <= 0) return true;
+    }
+
+    return false;
+  })();
 
   // Printable modal state
   const [printModalState, setPrintModalState] = useState<{
@@ -33,10 +123,102 @@ export default function App() {
     data: null,
   });
 
-  // Persist data whenever changed
+  // Role-based navigation guard
   useEffect(() => {
-    saveData(data);
-  }, [data]);
+    if (currentRole === 'cashier' && ['dashboard', 'accounting', 'settings'].includes(currentTab)) {
+      setCurrentTab('pos');
+    } else if (currentRole === 'technician' && ['dashboard', 'pos', 'accounting', 'settings'].includes(currentTab)) {
+      setCurrentTab('maintenance');
+    }
+  }, [currentRole, currentTab]);
+
+  // Track Firebase Auth user
+  useEffect(() => {
+    const unsubAuth = onAuthStateChanged(auth, (user) => {
+      setCurrentUser(user);
+    });
+    return () => unsubAuth();
+  }, []);
+
+  // Real-time synchronization with Firestore for currentStoreId
+  useEffect(() => {
+    localStorage.setItem('falcon_active_store_id', currentStoreId);
+    let unsubscribe = () => {};
+
+    // 1. Check local registered client stores to apply custom store name & info immediately
+    try {
+      const allStoresRaw = localStorage.getItem('falcon_all_client_stores');
+      if (allStoresRaw) {
+        const parsed = JSON.parse(allStoresRaw);
+        if (Array.isArray(parsed)) {
+          const matched = parsed.find(
+            (s: any) => s.storeId && s.storeId.toLowerCase() === currentStoreId.toLowerCase()
+          );
+          if (matched) {
+            setData((prev) => ({
+              ...prev,
+              storeInfo: {
+                ...prev.storeInfo,
+                storeId: matched.storeId,
+                name: matched.storeName || prev.storeInfo.name,
+                ownerName: matched.ownerName || prev.storeInfo.ownerName,
+                phone: matched.phone || prev.storeInfo.phone,
+                address: matched.city || prev.storeInfo.address,
+              },
+            }));
+          }
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // 2. Fetch and Subscribe to Firestore Cloud
+    testFirebaseConnection().then((connected) => {
+      setCloudConnected(connected);
+      if (connected && currentStoreId) {
+        // Direct initial fetch from Firestore
+        fetchStoreDataFromCloud(currentStoreId).then((cloudData: AppData | null) => {
+          if (cloudData && cloudData.storeInfo) {
+            setData(cloudData);
+            saveData(cloudData, currentStoreId);
+          }
+          setIsCloudLoaded(true);
+        }).catch((err: any) => {
+          console.warn('Initial cloud store fetch warning:', err);
+          setIsCloudLoaded(true);
+        });
+
+        // Real-time listener
+        unsubscribe = subscribeToStoreCloud(
+          currentStoreId,
+          (cloudData) => {
+            if (cloudData && cloudData.storeInfo) {
+              setData(cloudData);
+              saveData(cloudData, currentStoreId);
+              setIsCloudLoaded(true);
+            }
+          },
+          (err) => console.warn('Cloud store sync warning:', err)
+        );
+      }
+    });
+
+    return () => unsubscribe();
+  }, [currentStoreId]);
+
+  // Persist data whenever changed to LocalStorage and Firebase Cloud
+  useEffect(() => {
+    saveData(data, currentStoreId);
+    if (isCloudLoaded && currentStoreId) {
+      if (currentStoreId !== 'store-shamiri-01' && data.storeInfo?.name === 'الشميري فون') {
+        return;
+      }
+      syncStoreDataToCloud(currentStoreId, data).catch((err) =>
+        console.warn('Background cloud sync:', err)
+      );
+    }
+  }, [data, currentStoreId, isCloudLoaded]);
 
   // Update Exchange Rates
   const handleUpdateRates = (newRates: ExchangeRates) => {
@@ -369,6 +551,116 @@ export default function App() {
     }));
   };
 
+  const handleForceSync = async () => {
+    setIsSyncing(true);
+    try {
+      await syncStoreDataToCloud(currentStoreId, data);
+      setCloudConnected(true);
+    } catch (e) {
+      console.error('Failed to sync to cloud:', e);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleLoginSuccess = (role: UserRole, targetStoreId: string, cloudData?: AppData) => {
+    if (cloudData) {
+      setData(cloudData);
+      saveData(cloudData, targetStoreId);
+      setIsCloudLoaded(true);
+    }
+    if (targetStoreId && targetStoreId !== currentStoreId) {
+      setCurrentStoreId(targetStoreId);
+      localStorage.setItem('falcon_active_store_id', targetStoreId);
+    }
+    setCurrentRole(role);
+    if (role === 'cashier') {
+      setCurrentTab('pos');
+    } else if (role === 'technician') {
+      setCurrentTab('maintenance');
+    } else {
+      setCurrentTab('dashboard');
+    }
+    setIsSessionAuthenticated(true);
+    sessionStorage.setItem('falcon_auth_session', 'true');
+    sessionStorage.setItem('falcon_session_role', role);
+  };
+
+  const handleLockSession = () => {
+    setIsSessionAuthenticated(false);
+    sessionStorage.removeItem('falcon_auth_session');
+    sessionStorage.removeItem('falcon_session_role');
+  };
+
+  const handleStoreSwitched = (newStoreId: string, loadedData?: AppData) => {
+    setCurrentStoreId(newStoreId);
+    localStorage.setItem('falcon_active_store_id', newStoreId);
+    if (loadedData) {
+      setData(loadedData);
+      saveData(loadedData, newStoreId);
+      setIsCloudLoaded(true);
+    }
+    setIsSessionAuthenticated(true);
+    setCurrentRole('admin');
+    sessionStorage.setItem('falcon_auth_session', 'true');
+    sessionStorage.setItem('falcon_session_role', 'admin');
+  };
+
+  // 1. Mandatory Store Lock Screen if subscription is suspended or expired
+  if (isStoreSuspendedOrExpired) {
+    return (
+      <div className="min-h-screen bg-slate-900">
+        <StoreLockScreen
+          storeInfo={data.storeInfo}
+          currentStoreId={currentStoreId}
+          onOpenSuperAdmin={() => setIsMasterAdminOpen(true)}
+        />
+        <MasterAdminModal
+          isOpen={isMasterAdminOpen}
+          onClose={() => setIsMasterAdminOpen(false)}
+          onStoreSwitched={handleStoreSwitched}
+          currentStoreId={currentStoreId}
+        />
+        <SupportModal
+          isOpen={isSupportModalOpen}
+          onClose={() => setIsSupportModalOpen(false)}
+          storeInfo={data.storeInfo}
+          currentStoreId={currentStoreId}
+          onOpenSuperAdmin={() => setIsMasterAdminOpen(true)}
+        />
+      </div>
+    );
+  }
+
+  // 2. Mandatory Store Login Gate if station is locked or not logged in yet
+  if (!isSessionAuthenticated) {
+    return (
+      <>
+        <StoreLoginGate
+          currentStoreId={currentStoreId}
+          storeInfo={data.storeInfo}
+          isStoreSuspendedOrExpired={isStoreSuspendedOrExpired}
+          onLoginSuccess={handleLoginSuccess}
+          onOpenSupport={() => setIsSupportModalOpen(true)}
+          onOpenSuperAdmin={() => setIsMasterAdminOpen(true)}
+        />
+        <MasterAdminModal
+          isOpen={isMasterAdminOpen}
+          onClose={() => setIsMasterAdminOpen(false)}
+          onStoreSwitched={handleStoreSwitched}
+          currentStoreId={currentStoreId}
+        />
+        <SupportModal
+          isOpen={isSupportModalOpen}
+          onClose={() => setIsSupportModalOpen(false)}
+          storeInfo={data.storeInfo}
+          currentStoreId={currentStoreId}
+          onOpenSuperAdmin={() => setIsMasterAdminOpen(true)}
+        />
+      </>
+    );
+  }
+
   return (
     <div className="flex h-screen bg-slate-100 overflow-hidden text-slate-800">
       {/* Sidebar Navigation */}
@@ -379,6 +671,11 @@ export default function App() {
         products={data.products}
         isOpenMobile={isMobileMenuOpen}
         onCloseMobile={() => setIsMobileMenuOpen(false)}
+        currentRole={currentRole}
+        onOpenRoleModal={() => setIsRoleModalOpen(true)}
+        onOpenSupport={() => setIsSupportModalOpen(true)}
+        onLockSession={handleLockSession}
+        storeInfo={data.storeInfo}
       />
 
       {/* Main Content Area */}
@@ -395,6 +692,15 @@ export default function App() {
             setCurrentTab('accounting');
             setIsExchangeModalOpen(true);
           }}
+          onOpenCloudModal={() => setIsStoreCloudModalOpen(true)}
+          cloudConnected={cloudConnected}
+          currentStoreId={currentStoreId}
+          currentRole={currentRole}
+          onChangeRole={setCurrentRole}
+          onOpenRoleModal={() => setIsRoleModalOpen(true)}
+          onOpenSupport={() => setIsSupportModalOpen(true)}
+          onLockSession={handleLockSession}
+          storeInfo={data.storeInfo}
         />
 
         {/* View Content Body */}
@@ -481,6 +787,10 @@ export default function App() {
               onUpdateRates={handleUpdateRates}
               onUpdateStoreInfo={handleUpdateStoreInfo}
               onDataLoaded={(fresh) => setData(fresh)}
+              onOpenCloudModal={() => setIsStoreCloudModalOpen(true)}
+              cloudConnected={cloudConnected}
+              currentStoreId={currentStoreId}
+              currentRole={currentRole}
             />
           )}
         </main>
@@ -510,6 +820,44 @@ export default function App() {
           }
         />
       )}
+
+      {/* 1. STORE CLOUD STATUS MODAL (For regular store users) */}
+      <StoreCloudModal
+        isOpen={isStoreCloudModalOpen}
+        onClose={() => setIsStoreCloudModalOpen(false)}
+        currentStoreId={currentStoreId}
+        data={data}
+        onForceSync={handleForceSync}
+        isSyncing={isSyncing}
+        cloudConnected={cloudConnected}
+        onOpenMasterAdmin={() => setIsMasterAdminOpen(true)}
+      />
+
+      {/* 2. MASTER ADMIN MODAL (For Developer / System Owner with PIN 773419) */}
+      <MasterAdminModal
+        isOpen={isMasterAdminOpen}
+        onClose={() => setIsMasterAdminOpen(false)}
+        onStoreSwitched={handleStoreSwitched}
+        currentStoreId={currentStoreId}
+      />
+
+      {/* 3. STORE STAFF ROLE AUTH MODAL (Store Admin / Cashier / Technician) */}
+      <RoleAuthModal
+        isOpen={isRoleModalOpen}
+        onClose={() => setIsRoleModalOpen(false)}
+        currentRole={currentRole}
+        onChangeRole={setCurrentRole}
+        storeInfo={data.storeInfo}
+      />
+
+      {/* 4. TECHNICAL SUPPORT AND MAINTENANCE MODAL */}
+      <SupportModal
+        isOpen={isSupportModalOpen}
+        onClose={() => setIsSupportModalOpen(false)}
+        storeInfo={data.storeInfo}
+        currentStoreId={currentStoreId}
+        onOpenSuperAdmin={() => setIsMasterAdminOpen(true)}
+      />
     </div>
   );
 }

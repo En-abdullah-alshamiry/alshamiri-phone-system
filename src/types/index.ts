@@ -6,17 +6,38 @@ export interface ExchangeRates {
   lastUpdated: string;
 }
 
+export interface StoreSubscription {
+  planName: string;
+  status: 'active' | 'trial' | 'suspended' | 'expired';
+  isActive?: boolean;
+  expiresAt: string; // ISO date string
+  expiryDate?: string; // ISO date string alias
+  licensedDevices: number;
+  activatedAt?: string;
+  validUntil?: string;
+  daysRemaining?: number;
+  suspendedReason?: string;
+}
+
 export interface StoreInfo {
+  storeId?: string;
   name: string;
   subtitle: string;
   ownerName: string;
+  email?: string;
   phone: string;
   phone2?: string;
   address: string;
   crNumber?: string; // Commercial register / Tax
   maintenanceTerms: string;
   salesTerms: string;
+  subscription?: StoreSubscription;
+  adminPin?: string; // Store owner PIN, default 1234
+  cashierPin?: string; // Cashier PIN, default 2222
+  technicianPin?: string; // Technician PIN, default 3333
 }
+
+export type UserRole = 'admin' | 'cashier' | 'technician';
 
 export type ProductCategory = 
   | 'new_phones' 

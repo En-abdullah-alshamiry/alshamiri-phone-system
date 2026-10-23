@@ -1,0 +1,144 @@
+{
+  "entities": {
+    "Store": {
+      "title": "Store",
+      "description": "Phone store and repair workshop account profile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "subtitle": { "type": "string" },
+        "ownerName": { "type": "string" },
+        "ownerUid": { "type": "string" },
+        "phone": { "type": "string" },
+        "phone2": { "type": "string" },
+        "address": { "type": "string" },
+        "crNumber": { "type": "string" },
+        "maintenanceTerms": { "type": "string" },
+        "salesTerms": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "name", "ownerUid"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile with store association and role",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "storeId": { "type": "string" },
+        "role": { "type": "string", "enum": ["owner", "cashier", "technician", "admin"] },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["uid", "storeId", "role"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Phone, spare part or accessory item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "barcode": { "type": "string" },
+        "imei": { "type": "string" },
+        "imei2": { "type": "string" },
+        "quantity": { "type": "number" },
+        "minAlertQuantity": { "type": "number" },
+        "costPrice": { "type": "number" },
+        "costCurrency": { "type": "string" },
+        "salePrice": { "type": "number" },
+        "saleCurrency": { "type": "string" },
+        "condition": { "type": "string" },
+        "color": { "type": "string" },
+        "storage": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "name", "category", "quantity", "costPrice", "salePrice"]
+    },
+    "MaintenanceTicket": {
+      "title": "MaintenanceTicket",
+      "description": "Device repair intake card and workshop status",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "ticketNumber": { "type": "string" },
+        "customerName": { "type": "string" },
+        "customerPhone": { "type": "string" },
+        "deviceBrand": { "type": "string" },
+        "deviceModel": { "type": "string" },
+        "issueDescription": { "type": "string" },
+        "status": { "type": "string" },
+        "lockType": { "type": "string" },
+        "lockCode": { "type": "string" },
+        "estimatedCost": { "type": "number" },
+        "finalAmount": { "type": "number" },
+        "receivedAt": { "type": "string" },
+        "expectedDeliveryDate": { "type": "string" }
+      },
+      "required": ["id", "ticketNumber", "customerName", "deviceModel", "issueDescription", "status"]
+    },
+    "SaleInvoice": {
+      "title": "SaleInvoice",
+      "description": "Sales invoice record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "invoiceNumber": { "type": "string" },
+        "date": { "type": "string" },
+        "total": { "type": "number" },
+        "currency": { "type": "string" },
+        "paidAmount": { "type": "number" },
+        "paymentType": { "type": "string" },
+        "customerName": { "type": "string" }
+      },
+      "required": ["id", "invoiceNumber", "total", "currency", "paymentType"]
+    },
+    "CashboxTransaction": {
+      "title": "CashboxTransaction",
+      "description": "Cash transaction in one of the 3 safes (YER, SAR, USD)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "date": { "type": "string" },
+        "currency": { "type": "string" },
+        "amount": { "type": "number" },
+        "type": { "type": "string" },
+        "category": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "required": ["id", "currency", "amount", "type", "category"]
+    }
+  },
+  "firestore": {
+    "/stores/{storeId}": {
+      "schema": { "$ref": "#/entities/Store" },
+      "description": "Individual phone store and repair shop accounts"
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Users linked to specific store"
+    },
+    "/stores/{storeId}/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Store inventory products"
+    },
+    "/stores/{storeId}/maintenanceTickets/{ticketId}": {
+      "schema": { "$ref": "#/entities/MaintenanceTicket" },
+      "description": "Store maintenance tickets"
+    },
+    "/stores/{storeId}/salesInvoices/{invoiceId}": {
+      "schema": { "$ref": "#/entities/SaleInvoice" },
+      "description": "Store sales invoices"
+    },
+    "/stores/{storeId}/cashTransactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/CashboxTransaction" },
+      "description": "Store cash safe transactions"
+    }
+  }
+}

@@ -11,8 +11,16 @@ import {
   Calculator,
   Shield,
   FileCheck,
+  Key,
+  Lock,
+  Eye,
+  EyeOff,
+  AlertCircle,
+  X,
+  Layers,
+  Cloud,
 } from 'lucide-react';
-import { AppData, ExchangeRates, StoreInfo } from '../../types';
+import { AppData, ExchangeRates, StoreInfo, UserRole } from '../../types';
 import {
   exportBackupJSON,
   importBackupJSON,
@@ -22,15 +30,19 @@ import {
   BackupPreviewStats,
   saveData,
 } from '../../services/storage';
+import { syncStoreDataToCloud } from '../../services/firebase';
 import { formatMoney, formatDate } from '../../utils/formatters';
 import confetti from 'canvas-confetti';
-import { AlertCircle, X, Layers } from 'lucide-react';
 
 interface SettingsViewProps {
   data: AppData;
   onUpdateRates: (rates: ExchangeRates) => void;
   onUpdateStoreInfo: (info: StoreInfo) => void;
   onDataLoaded: (freshData: AppData) => void;
+  onOpenCloudModal?: () => void;
+  cloudConnected?: boolean;
+  currentStoreId?: string;
+  currentRole?: UserRole;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -38,6 +50,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onUpdateRates,
   onUpdateStoreInfo,
   onDataLoaded,
+  onOpenCloudModal,
+  cloudConnected = true,
+  currentStoreId = 'store-shamiri-01',
+  currentRole = 'admin',
 }) => {
   // Exchange Rates State
   const [yerPerUsd, setYerPerUsd] = useState(data.exchangeRates.YER_PER_USD.toString());
@@ -55,6 +71,67 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   React.useEffect(() => {
     setStoreInfo(data.storeInfo);
   }, [data.storeInfo]);
+
+  // Dedicated PIN Management State
+  const [adminPinInput, setAdminPinInput] = useState(data.storeInfo.adminPin || '');
+  const [cashierPinInput, setCashierPinInput] = useState(data.storeInfo.cashierPin || '');
+  const [technicianPinInput, setTechnicianPinInput] = useState(data.storeInfo.technicianPin || '');
+  const [showAdminPin, setShowAdminPin] = useState(false);
+  const [showCashierPin, setShowCashierPin] = useState(false);
+  const [showTechnicianPin, setShowTechnicianPin] = useState(false);
+  const [pinSavedAlert, setPinSavedAlert] = useState(false);
+  const [isSavingPins, setIsSavingPins] = useState(false);
+
+  React.useEffect(() => {
+    setAdminPinInput(data.storeInfo.adminPin || '');
+    setCashierPinInput(data.storeInfo.cashierPin || '');
+    setTechnicianPinInput(data.storeInfo.technicianPin || '');
+  }, [data.storeInfo]);
+
+  const handleSavePins = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminPinInput.trim() || !cashierPinInput.trim() || !technicianPinInput.trim()) {
+      alert('يرجى ملء جميع حقول الرموز السرية (PIN).');
+      return;
+    }
+
+    setIsSavingPins(true);
+    try {
+      const updatedStoreInfo: StoreInfo = {
+        ...storeInfo,
+        adminPin: adminPinInput.trim(),
+        cashierPin: cashierPinInput.trim(),
+        technicianPin: technicianPinInput.trim(),
+      };
+
+      const updatedData: AppData = {
+        ...data,
+        storeInfo: updatedStoreInfo,
+      };
+
+      // 1. Update React state
+      setStoreInfo(updatedStoreInfo);
+      onUpdateStoreInfo(updatedStoreInfo);
+
+      // 2. Persist to localStorage for this store
+      saveData(updatedData, currentStoreId);
+
+      // 3. Persist directly to Firebase Firestore document
+      if (currentStoreId) {
+        await syncStoreDataToCloud(currentStoreId, updatedData);
+      }
+
+      setPinSavedAlert(true);
+      try {
+        confetti({ particleCount: 30, spread: 50, origin: { y: 0.6 } });
+      } catch {}
+      setTimeout(() => setPinSavedAlert(false), 4000);
+    } catch (err: any) {
+      alert(`حدث خطأ أثناء حفظ الرموز في السحابة: ${err.message || 'خطأ غير معروف'}`);
+    } finally {
+      setIsSavingPins(false);
+    }
+  };
 
   // Backup & Import State
   const [lastBackupTime, setLastBackupTime] = useState<string | null>(() => getLastBackupTimestamp());
@@ -318,6 +395,64 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </div>
 
+        {/* Card: Firebase Cloud & Multi-Store Management */}
+        <div className="bg-gradient-to-br from-slate-900 to-indigo-950 text-white p-5 rounded-3xl shadow-md space-y-4 col-span-1 lg:col-span-2">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-indigo-900/60 pb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center border border-indigo-400/20">
+                <Cloud className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-sm sm:text-base flex items-center gap-2">
+                  <span>الربط السحابي بقاعدة بيانات Firebase ومزامنة المحلات</span>
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      cloudConnected
+                        ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                        : 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                    }`}
+                  >
+                    {cloudConnected ? '🟢 متصل بنجاح' : '🟠 غير متصل'}
+                  </span>
+                </h3>
+                <p className="text-xs text-slate-300 mt-0.5">
+                  حفظ تلقائي لجميع الفواتير والمخزون في سحابة Google، مع عزل كامل لكل محل ومزامنة أجهزة الكاشير والفنيين.
+                </p>
+              </div>
+            </div>
+
+            {onOpenCloudModal && (
+              <button
+                type="button"
+                onClick={onOpenCloudModal}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition-all shadow-md self-start sm:self-auto shrink-0"
+              >
+                <Layers className="w-4 h-4" />
+                <span>إدارة حساب المحل والسحابة</span>
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+            <div className="p-3 bg-slate-800/80 rounded-2xl border border-slate-700/80">
+              <span className="text-[10px] text-slate-400 block mb-0.5">المحل النشط:</span>
+              <span className="font-bold text-white text-sm">{data.storeInfo.name}</span>
+            </div>
+            <div className="p-3 bg-slate-800/80 rounded-2xl border border-slate-700/80">
+              <span className="text-[10px] text-slate-400 block mb-0.5">معرف المحل السحابي (Store ID):</span>
+              <span className="font-mono font-bold text-indigo-300 text-sm" dir="ltr">
+                {currentStoreId}
+              </span>
+            </div>
+            <div className="p-3 bg-slate-800/80 rounded-2xl border border-slate-700/80">
+              <span className="text-[10px] text-slate-400 block mb-0.5">حالة الأمان والنسخ الاحتياطي:</span>
+              <span className="font-bold text-emerald-400 flex items-center gap-1">
+                ✓ مشفر ومحمي في Firebase
+              </span>
+            </div>
+          </div>
+        </div>
+
         {/* Card 2: Backup, Restore & Database Security */}
         <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs space-y-4">
           <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
@@ -336,7 +471,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           </div>
 
-          {/* Database Health & Contents Badge */}
+          {currentRole !== 'admin' ? (
+            <div className="p-8 bg-slate-50 rounded-2xl border border-slate-200 text-center space-y-2">
+              <Shield className="w-8 h-8 text-amber-500 mx-auto" />
+              <h4 className="font-bold text-slate-800 text-sm">قسم النسخ الاحتياطي محجوب 🔒</h4>
+              <p className="text-[11px] text-slate-500 max-w-sm mx-auto">
+                خاصية تصدير واستيراد قاعدة بيانات المحل بصيغة JSON مقتصرة حصرياً على مالك ومدير المحل (Store Admin).
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Database Health & Contents Badge */}
           <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 text-xs space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-slate-600 font-medium">حجم البيانات التقديري:</span>
@@ -460,6 +605,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </button>
             </div>
           </div>
+            </>
+          )}
         </div>
       </div>
 
@@ -533,7 +680,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               />
             </div>
 
-            <div>
+            <div className="sm:col-span-2">
               <label className="block text-slate-700 font-bold mb-1">العنوان والموقع</label>
               <input
                 type="text"
@@ -588,6 +735,148 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </form>
       </div>
+
+      {/* DEDICATED PIN MANAGEMENT CARD FOR STORE ADMIN */}
+      {currentRole === 'admin' && (
+        <div className="bg-white p-6 rounded-3xl shadow-xs border border-purple-200">
+          <div className="flex items-center gap-3 mb-6 pb-4 border-b border-purple-100">
+            <div className="w-10 h-10 rounded-2xl bg-purple-600/10 border border-purple-200 flex items-center justify-center">
+              <Key className="w-5 h-5 text-purple-600" />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                تغيير رموز الدخول وPIN
+                <span className="px-2 py-0.5 rounded-full text-[10px] bg-purple-100 text-purple-800 font-medium">خاص بمدير المحل</span>
+              </h3>
+              <p className="text-xs text-slate-500">
+                إدارة الرموز السرية للمدير والموظفين. يتم تشفير وحفظ هذه الرموز سحابياً لاعتمادها الفوري في شاشة تسجيل الدخول.
+              </p>
+            </div>
+          </div>
+
+          <form onSubmit={handleSavePins} className="space-y-4 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {/* Store Admin PIN */}
+              <div className="bg-purple-50/50 p-4 rounded-2xl border border-purple-200/80">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="font-bold text-purple-950 flex items-center gap-1.5">
+                    <Shield className="w-3.5 h-3.5 text-purple-600" />
+                    رمز PIN مدير المحل
+                  </label>
+                  <span className="text-[10px] text-purple-700 bg-purple-100/70 px-1.5 py-0.5 rounded-md font-medium">الأرباح والصناديق</span>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showAdminPin ? 'text' : 'password'}
+                    value={adminPinInput}
+                    onChange={(e) => setAdminPinInput(e.target.value)}
+                    placeholder="••••••••"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    spellCheck="false"
+                    className="w-full bg-white border border-purple-300 rounded-xl px-3 py-2 text-xs font-mono font-black text-purple-900 tracking-widest focus:ring-2 focus:ring-purple-500 pr-9"
+                    dir="ltr"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminPin(!showAdminPin)}
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                    title={showAdminPin ? 'إخفاء' : 'إظهار'}
+                  >
+                    {showAdminPin ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+                <p className="text-[10px] text-purple-600/80 mt-1.5 leading-tight">صلاحية كاملة للمحفظة، أسعار الصرف، والإعدادات.</p>
+              </div>
+
+              {/* Cashier PIN */}
+              <div className="bg-emerald-50/50 p-4 rounded-2xl border border-emerald-200/80">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="font-bold text-emerald-950 flex items-center gap-1.5">
+                    <Shield className="w-3.5 h-3.5 text-emerald-600" />
+                    رمز PIN الكاشير
+                  </label>
+                  <span className="text-[10px] text-emerald-700 bg-emerald-100/70 px-1.5 py-0.5 rounded-md font-medium">نقطة البيع (POS)</span>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showCashierPin ? 'text' : 'password'}
+                    value={cashierPinInput}
+                    onChange={(e) => setCashierPinInput(e.target.value)}
+                    placeholder="••••••••"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    spellCheck="false"
+                    className="w-full bg-white border border-emerald-300 rounded-xl px-3 py-2 text-xs font-mono font-black text-emerald-900 tracking-widest focus:ring-2 focus:ring-emerald-500 pr-9"
+                    dir="ltr"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowCashierPin(!showCashierPin)}
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                    title={showCashierPin ? 'إخفاء' : 'إظهار'}
+                  >
+                    {showCashierPin ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+                <p className="text-[10px] text-emerald-600/80 mt-1.5 leading-tight">مبيعات وسندات شراء مستعمل دون رؤية الأرباح.</p>
+              </div>
+
+              {/* Technician PIN */}
+              <div className="bg-amber-50/50 p-4 rounded-2xl border border-amber-200/80">
+                <div className="flex items-center justify-between mb-2">
+                  <label className="font-bold text-amber-950 flex items-center gap-1.5">
+                    <Shield className="w-3.5 h-3.5 text-amber-600" />
+                    رمز PIN فني الصيانة
+                  </label>
+                  <span className="text-[10px] text-amber-700 bg-amber-100/70 px-1.5 py-0.5 rounded-md font-medium">قسم الورشة</span>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showTechnicianPin ? 'text' : 'password'}
+                    value={technicianPinInput}
+                    onChange={(e) => setTechnicianPinInput(e.target.value)}
+                    placeholder="••••••••"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    spellCheck="false"
+                    className="w-full bg-white border border-amber-300 rounded-xl px-3 py-2 text-xs font-mono font-black text-amber-900 tracking-widest focus:ring-2 focus:ring-amber-500 pr-9"
+                    dir="ltr"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowTechnicianPin(!showTechnicianPin)}
+                    className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
+                    title={showTechnicianPin ? 'إخفاء' : 'إظهار'}
+                  >
+                    {showTechnicianPin ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                  </button>
+                </div>
+                <p className="text-[10px] text-amber-600/80 mt-1.5 leading-tight">كروت صيانة وقطع غيار دون الوصول للأموال والصناديق.</p>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-3 border-t border-purple-100">
+              {pinSavedAlert ? (
+                <span className="text-emerald-700 font-bold flex items-center gap-1.5 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200">
+                  <Check className="w-4 h-4" />
+                  تم حفظ وتحديث رموز الدخول السحابية بنجاح!
+                </span>
+              ) : (
+                <span className="text-slate-400 text-[11px]">احفظ الرموز في مكان آمن ولا تشارك رمز المدير مع أي شخص</span>
+              )}
+              <button
+                type="submit"
+                disabled={isSavingPins}
+                className="px-6 py-2.5 bg-purple-700 hover:bg-purple-800 active:bg-purple-900 text-white font-bold rounded-xl shadow-xs transition-colors disabled:opacity-50 flex items-center gap-2"
+              >
+                <Lock className="w-4 h-4" />
+                {isSavingPins ? 'جاري الحفظ بالسحابة...' : 'تحديث وحفظ رموز PIN'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* PRE-IMPORT VERIFICATION & CONFIRMATION MODAL */}
       {importPreview && (

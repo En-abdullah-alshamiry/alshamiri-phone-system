@@ -9,9 +9,15 @@ import {
   DollarSign,
   Edit2,
   Check,
+  Cloud,
+  Shield,
+  UserCheck,
+  Headphones,
+  LogOut,
 } from 'lucide-react';
-import { Currency, ExchangeRates, CashboxTransaction } from '../../types';
+import { Currency, ExchangeRates, CashboxTransaction, UserRole, StoreInfo } from '../../types';
 import { formatMoney } from '../../utils/formatters';
+import { PWAInstallButton } from '../common/PWAInstallButton';
 
 interface HeaderProps {
   onToggleMobileMenu: () => void;
@@ -21,6 +27,15 @@ interface HeaderProps {
   onOpenNewSale: () => void;
   onOpenNewMaintenance: () => void;
   onOpenExchangeModal: () => void;
+  onOpenCloudModal?: () => void;
+  cloudConnected?: boolean;
+  currentStoreId?: string;
+  currentRole?: UserRole;
+  onChangeRole?: (role: UserRole) => void;
+  onOpenRoleModal?: () => void;
+  onOpenSupport?: () => void;
+  onLockSession?: () => void;
+  storeInfo?: StoreInfo;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -31,8 +46,18 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenNewSale,
   onOpenNewMaintenance,
   onOpenExchangeModal,
+  onOpenCloudModal,
+  cloudConnected = true,
+  currentStoreId,
+  currentRole = 'admin',
+  onChangeRole,
+  onOpenRoleModal,
+  onOpenSupport,
+  onLockSession,
+  storeInfo,
 }) => {
   const [isEditingRates, setIsEditingRates] = useState(false);
+  const [showRoleMenu, setShowRoleMenu] = useState(false);
   const [tempUsd, setTempUsd] = useState(exchangeRates.YER_PER_USD.toString());
   const [tempSar, setTempSar] = useState(exchangeRates.YER_PER_SAR.toString());
 
@@ -78,8 +103,8 @@ export const Header: React.FC<HeaderProps> = ({
             <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 to-sky-500 text-white flex items-center justify-center font-black text-xs shadow-xs">
               📱
             </div>
-            <span className="font-black text-slate-900">
-              الشميري فون
+            <span className="font-black text-slate-900 truncate max-w-[200px]" title={storeInfo?.name || 'المتجر'}>
+              {storeInfo?.name || 'الشميري فون'}
             </span>
           </div>
 
@@ -149,52 +174,138 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Right Side: Cashbox Balances and Quick Actions */}
         <div className="flex flex-wrap items-center gap-2.5 justify-end">
-          {/* 3 Cashbox Mini Pills */}
-          <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200/90 rounded-2xl p-1 px-2.5">
-            <span className="text-[11px] text-slate-500 flex items-center gap-1 font-semibold pl-1 border-l border-slate-200">
-              <Wallet className="w-3.5 h-3.5 text-slate-500" />
-              الخزائن:
-            </span>
+          {/* Cashbox Balances: Visible for Admin and Cashier, strictly hidden for Technician */}
+          {currentRole !== 'technician' ? (
+            <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200/90 rounded-2xl p-1 px-2.5">
+              <span className="text-[11px] text-slate-500 flex items-center gap-1 font-semibold pl-1 border-l border-slate-200">
+                <Wallet className="w-3.5 h-3.5 text-slate-500" />
+                الخزائن:
+              </span>
 
-            {/* YER */}
-            <span
-              className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200/80 font-mono"
-              title="خزينة الريال اليمني"
-              dir="ltr"
-            >
-              {formatMoney(yerBalance, 'YER')}
-            </span>
+              {/* YER */}
+              <span
+                className="text-xs font-bold text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-lg border border-emerald-200/80 font-mono"
+                title="خزينة الريال اليمني"
+                dir="ltr"
+              >
+                {formatMoney(yerBalance, 'YER')}
+              </span>
 
-            {/* SAR */}
-            <span
-              className="text-xs font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200/80 font-mono"
-              title="خزينة الريال السعودي"
-              dir="ltr"
-            >
-              {formatMoney(sarBalance, 'SAR')}
-            </span>
+              {/* SAR */}
+              <span
+                className="text-xs font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200/80 font-mono"
+                title="خزينة الريال السعودي"
+                dir="ltr"
+              >
+                {formatMoney(sarBalance, 'SAR')}
+              </span>
 
-            {/* USD */}
-            <span
-              className="text-xs font-bold text-blue-800 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-200/80 font-mono"
-              title="خزينة الدولار"
-              dir="ltr"
-            >
-              {formatMoney(usdBalance, 'USD')}
-            </span>
-          </div>
+              {/* USD */}
+              <span
+                className="text-xs font-bold text-blue-800 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-200/80 font-mono"
+                title="خزينة الدولار"
+                dir="ltr"
+              >
+                {formatMoney(usdBalance, 'USD')}
+              </span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 bg-slate-100 border border-slate-200 text-slate-500 rounded-2xl p-1.5 px-3 text-xs">
+              <Wallet className="w-3.5 h-3.5 text-slate-400" />
+              <span>الخزينة محجوبة عن الفني 🔒</span>
+            </div>
+          )}
 
           {/* Quick Action Buttons */}
           <div className="flex items-center gap-1.5">
+            {/* PWA Desktop & Mobile Install Button */}
+            <PWAInstallButton />
+
+            {/* User Role Button (clicking triggers RoleAuthModal with PIN verification) */}
             <button
-              onClick={onOpenExchangeModal}
-              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs flex items-center gap-1 border border-slate-200 transition-all shadow-2xs"
-              title="تحويل ومصارفة بين الصناديق"
+              onClick={() => {
+                if (onOpenRoleModal) {
+                  onOpenRoleModal();
+                } else {
+                  setShowRoleMenu(!showRoleMenu);
+                }
+              }}
+              className={`px-2.5 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs border ${
+                currentRole === 'admin'
+                  ? 'bg-purple-50 text-purple-900 border-purple-200 hover:bg-purple-100'
+                  : currentRole === 'cashier'
+                  ? 'bg-emerald-50 text-emerald-900 border-emerald-200 hover:bg-emerald-100'
+                  : 'bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100'
+              }`}
+              title="تغيير المستخدم أو إدخال PIN مدير المحل"
             >
-              <ArrowRightLeft className="w-3.5 h-3.5 text-indigo-600" />
-              <span className="hidden sm:inline">مصارفة</span>
+              <Shield className="w-3.5 h-3.5" />
+              <span>
+                {currentRole === 'admin'
+                  ? 'المدير 🛡️'
+                  : currentRole === 'cashier'
+                  ? 'كاشير 💵'
+                  : 'فني صيانة 🔧'}
+              </span>
             </button>
 
+            {onOpenCloudModal && (
+              <button
+                onClick={onOpenCloudModal}
+                className="px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100/90 text-indigo-900 font-bold rounded-xl text-xs flex items-center gap-1.5 border border-indigo-200/90 transition-all shadow-2xs"
+                title="حالة السحابة وترخيص المحل"
+              >
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    cloudConnected ? 'bg-emerald-500 animate-pulse' : 'bg-amber-500'
+                  }`}
+                />
+                <Cloud className="w-3.5 h-3.5 text-indigo-600" />
+                <span className="hidden sm:inline font-mono text-[10px] font-black">
+                  {currentStoreId || 'السحابة'}
+                </span>
+              </button>
+            )}
+
+            {/* Support Button */}
+            {onOpenSupport && (
+              <button
+                type="button"
+                onClick={onOpenSupport}
+                className="px-2.5 py-1.5 bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-900 font-bold rounded-xl text-xs flex items-center gap-1.5 border border-slate-200 transition-all shadow-2xs"
+                title="الدعم الفني المباشر وتجديد التراخيص (773419308)"
+              >
+                <Headphones className="w-3.5 h-3.5 text-indigo-600" />
+                <span className="hidden lg:inline">الدعم الفني</span>
+              </button>
+            )}
+
+            {/* Lock Session / Logout */}
+            {onLockSession && (
+              <button
+                type="button"
+                onClick={onLockSession}
+                className="p-1.5 px-2 bg-slate-100 hover:bg-rose-50 text-slate-600 hover:text-rose-600 border border-slate-200 rounded-xl transition-all flex items-center gap-1 text-xs"
+                title="قفل المحطة وتسجيل الخروج"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span className="hidden xl:inline">خروج</span>
+              </button>
+            )}
+
+            {/* Currency Exchange: Admin Only */}
+            {currentRole === 'admin' && (
+              <button
+                onClick={onOpenExchangeModal}
+                className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-xs flex items-center gap-1 border border-slate-200 transition-all shadow-2xs"
+                title="تحويل ومصارفة بين الصناديق"
+              >
+                <ArrowRightLeft className="w-3.5 h-3.5 text-indigo-600" />
+                <span className="hidden sm:inline">مصارفة</span>
+              </button>
+            )}
+
+            {/* Reception of maintenance ticket: Admin, Cashier, Technician */}
             <button
               onClick={onOpenNewMaintenance}
               className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-xl text-xs flex items-center gap-1.5 shadow-sm shadow-amber-500/20 transition-all"
@@ -203,13 +314,16 @@ export const Header: React.FC<HeaderProps> = ({
               <span>استلام جهاز</span>
             </button>
 
-            <button
-              onClick={onOpenNewSale}
-              className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-xs flex items-center gap-1.5 shadow-sm shadow-indigo-600/20 transition-all"
-            >
-              <PlusCircle className="w-3.5 h-3.5" />
-              <span>فاتورة جديدة</span>
-            </button>
+            {/* New Sale: Admin and Cashier only (hidden from technician) */}
+            {currentRole !== 'technician' && (
+              <button
+                onClick={onOpenNewSale}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-xs flex items-center gap-1.5 shadow-sm shadow-indigo-600/20 transition-all"
+              >
+                <PlusCircle className="w-3.5 h-3.5" />
+                <span>فاتورة جديدة</span>
+              </button>
+            )}
           </div>
         </div>
       </div>

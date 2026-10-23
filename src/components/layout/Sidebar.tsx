@@ -11,8 +11,10 @@ import {
   AlertTriangle,
   Clock,
   Sparkles,
+  Headphones,
+  LogOut,
 } from 'lucide-react';
-import { MaintenanceTicket, Product } from '../../types';
+import { MaintenanceTicket, Product, UserRole, StoreInfo } from '../../types';
 
 export type NavTab = 'dashboard' | 'pos' | 'maintenance' | 'inventory' | 'accounting' | 'settings';
 
@@ -23,6 +25,11 @@ interface SidebarProps {
   products: Product[];
   isOpenMobile: boolean;
   onCloseMobile: () => void;
+  currentRole?: UserRole;
+  onOpenRoleModal?: () => void;
+  onOpenSupport?: () => void;
+  onLockSession?: () => void;
+  storeInfo?: StoreInfo;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -32,6 +39,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   products,
   isOpenMobile,
   onCloseMobile,
+  currentRole = 'admin',
+  onOpenRoleModal,
+  onOpenSupport,
+  onLockSession,
+  storeInfo,
 }) => {
   // Count active repair devices
   const activeRepairsCount = maintenanceTickets.filter(
@@ -86,6 +98,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
   ];
 
+  // Filter nav items strictly by role
+  const filteredNavItems = navItems.filter((item) => {
+    if (currentRole === 'admin') return true;
+    if (currentRole === 'cashier') {
+      return item.id === 'pos' || item.id === 'maintenance' || item.id === 'inventory';
+    }
+    if (currentRole === 'technician') {
+      return item.id === 'maintenance' || item.id === 'inventory';
+    }
+    return true;
+  });
+
   return (
     <>
       {/* Mobile backdrop */}
@@ -109,15 +133,35 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <Smartphone className="w-6 h-6 stroke-[2.2]" />
             </div>
             <div>
-              <h2 className="font-black text-white text-base tracking-tight leading-none flex items-center gap-1.5">
-                الشميري فون
-                <span className="text-[10px] bg-indigo-500/30 text-indigo-300 font-bold px-1.5 py-0.5 rounded-md border border-indigo-500/30">
-                  برو
-                </span>
+              <h2 className="font-black text-white text-base tracking-tight leading-none flex items-center gap-1.5 truncate max-w-[170px]" title={storeInfo?.name || 'المتجر'}>
+                {storeInfo?.name || 'الشميري فون'}
               </h2>
-              <p className="text-[11px] text-slate-400 mt-1 font-medium">
-                إدارة الجوالات والصيانة متعددة العملات
+              <p className="text-[11px] text-slate-400 mt-0.5 font-medium truncate max-w-[170px]" title={storeInfo?.subtitle || 'إدارة الجوالات والصيانة'}>
+                {storeInfo?.subtitle || 'إدارة الجوالات والصيانة متعددة العملات'}
               </p>
+              <div className="flex items-center gap-1.5 mt-1.5">
+                <button
+                  type="button"
+                  onClick={onOpenRoleModal}
+                  className={`text-[9px] font-bold px-2 py-0.5 rounded-md flex items-center gap-1 transition-all hover:scale-105 ${
+                    currentRole === 'admin'
+                      ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30 hover:bg-purple-500/30'
+                      : currentRole === 'cashier'
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/30'
+                      : 'bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30'
+                  }`}
+                  title="اضغط لتغيير الصلاحية أو تسجيل خروج"
+                >
+                  <span>
+                    {currentRole === 'admin'
+                      ? '🛡️ مدير المحل'
+                      : currentRole === 'cashier'
+                      ? '💵 كاشير المبيعات'
+                      : '🔧 فني الصيانة'}
+                  </span>
+                  <span className="text-[8px] opacity-75">▼</span>
+                </button>
+              </div>
             </div>
           </div>
           <button
@@ -130,7 +174,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Navigation Links */}
         <nav className="flex-1 p-3 space-y-1.5 overflow-y-auto">
-          {navItems.map((item) => {
+          {filteredNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = currentTab === item.id;
             return (
@@ -209,6 +253,33 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span className="font-bold">{lowStockCount} صنف</span>
             </div>
           )}
+
+          {/* Support & Logout Footer Actions */}
+          <div className="mt-3 pt-2.5 border-t border-slate-800/80 flex items-center gap-1.5">
+            {onOpenSupport && (
+              <button
+                type="button"
+                onClick={onOpenSupport}
+                className="flex-1 py-1.5 px-2 bg-slate-800 hover:bg-slate-700 text-indigo-300 font-bold rounded-xl text-[10px] flex items-center justify-center gap-1 transition-all"
+                title="الدعم الفني والصيانة المباشرة (773419308)"
+              >
+                <Headphones className="w-3 h-3 text-indigo-400" />
+                <span>الدعم الفني</span>
+              </button>
+            )}
+
+            {onLockSession && (
+              <button
+                type="button"
+                onClick={onLockSession}
+                className="py-1.5 px-2 bg-slate-800 hover:bg-rose-950/60 text-slate-400 hover:text-rose-400 border border-slate-700/60 rounded-xl text-[10px] flex items-center gap-1 transition-all"
+                title="تسجيل الخروج وقفل الشاشة"
+              >
+                <LogOut className="w-3 h-3" />
+                <span>خروج</span>
+              </button>
+            )}
+          </div>
         </div>
       </aside>
     </>

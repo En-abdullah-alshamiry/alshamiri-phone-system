@@ -1068,7 +1068,7 @@ export const MaintenanceView: React.FC<MaintenanceViewProps> = ({
                   <div>
                     <input
                       type="text"
-                      placeholder="أدخل رمز القفل مثلاً: 1234 أو 0000"
+                      placeholder="أدخل رمز قفل الشاشة (PIN / باسورد)"
                       value={lockCode}
                       onChange={(e) => setLockCode(e.target.value)}
                       className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-center text-sm font-mono tracking-widest font-bold"
