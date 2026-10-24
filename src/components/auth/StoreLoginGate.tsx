@@ -45,22 +45,41 @@ export const StoreLoginGate: React.FC<StoreLoginGateProps> = ({
   // Master Emergency Override PIN reserved for the developer (works on Admin role)
   const MASTER_OVERRIDE_PIN = '773419';
 
-  // 1. Secret Masked Store ID State - Reads from URL if present (?store=...), otherwise blank
+  // 1. Secret Masked Store ID State - Reads from URL if present (?storeId=... or ?store=...), otherwise currentStoreId
   const [storeIdInput, setStoreIdInput] = useState<string>(() => {
     try {
       const urlParams = new URLSearchParams(window.location.search);
-      const urlStore = urlParams.get('store');
+      const urlStore = urlParams.get('storeId') || urlParams.get('store') || urlParams.get('store_id');
       if (urlStore && urlStore.trim()) {
         return urlStore.trim();
       }
+      if (window.location.hash.includes('?')) {
+        const hashParams = new URLSearchParams(window.location.hash.split('?')[1]);
+        const hashStore = hashParams.get('storeId') || hashParams.get('store') || hashParams.get('store_id');
+        if (hashStore && hashStore.trim()) return hashStore.trim();
+      }
     } catch {}
+    if (currentStoreId && currentStoreId.trim()) return currentStoreId.trim();
     return '';
   });
   const [showStoreId, setShowStoreId] = useState(false);
   const [isStoreVerified, setIsStoreVerified] = useState(false);
-  const [verifiedStoreName, setVerifiedStoreName] = useState('');
+  const [verifiedStoreName, setVerifiedStoreName] = useState(() => {
+    if (storeInfo?.name && storeInfo.name !== 'المتجر المرخص') {
+      return storeInfo.name;
+    }
+    return '';
+  });
   const [verifiedStoreData, setVerifiedStoreData] = useState<AppData | null>(null);
   const [isVerifyingStore, setIsVerifyingStore] = useState(false);
+
+  // Sync when parent App loads storeInfo dynamically from Firestore
+  useEffect(() => {
+    if (storeInfo?.name && storeInfo.name !== 'المتجر المرخص') {
+      setVerifiedStoreName(storeInfo.name);
+      setIsStoreVerified(true);
+    }
+  }, [storeInfo?.name]);
 
   // 2. Role and Standard PIN State
   const [selectedRole, setSelectedRole] = useState<UserRole>('cashier');
@@ -158,9 +177,13 @@ export const StoreLoginGate: React.FC<StoreLoginGateProps> = ({
     // If recognized locally, mark verified immediately so UI never hangs
     if (localData || matchedLocalStore || matchesDefaultStore) {
       const localResolvedName =
-        localData?.storeInfo?.name ||
-        matchedLocalStore?.storeName ||
-        (matchesDefaultStore ? storeInfo.name : 'المتجر المرخص');
+        localData?.storeInfo?.name && localData.storeInfo.name !== 'المتجر المرخص'
+          ? localData.storeInfo.name
+          : matchedLocalStore?.storeName && matchedLocalStore.storeName !== 'المتجر المرخص'
+          ? matchedLocalStore.storeName
+          : storeInfo.name && storeInfo.name !== 'المتجر المرخص'
+          ? storeInfo.name
+          : cleanCode;
 
       setIsStoreVerified(true);
       setVerifiedStoreName(localResolvedName);
@@ -171,7 +194,9 @@ export const StoreLoginGate: React.FC<StoreLoginGateProps> = ({
         .then((cloudData) => {
           if (cloudData && cloudData.storeInfo) {
             setVerifiedStoreData(cloudData);
-            if (cloudData.storeInfo.name) setVerifiedStoreName(cloudData.storeInfo.name);
+            if (cloudData.storeInfo.name && cloudData.storeInfo.name !== 'المتجر المرخص') {
+              setVerifiedStoreName(cloudData.storeInfo.name);
+            }
             saveData(cloudData, cleanCode);
           }
         })
@@ -226,7 +251,10 @@ export const StoreLoginGate: React.FC<StoreLoginGateProps> = ({
         return { valid: false, reason: 'expired' };
       }
 
-      const resolvedName = cloudData.storeInfo?.name || 'المتجر المرخص';
+      const resolvedName =
+        cloudData.storeInfo?.name && cloudData.storeInfo.name !== 'المتجر المرخص'
+          ? cloudData.storeInfo.name
+          : (cloudData as any).storeName || (cloudData as any).name || matchedLocalStore?.storeName || cleanCode;
 
       setIsStoreVerified(true);
       setVerifiedStoreName(resolvedName);
@@ -579,7 +607,7 @@ export const StoreLoginGate: React.FC<StoreLoginGateProps> = ({
                 <div className="mt-2 p-2 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-[11px] text-emerald-900 animate-fadeIn">
                   <div className="flex items-center gap-1.5 font-bold">
                     <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
-                    <span>المتجر المرخص: {verifiedStoreName}</span>
+                    <span>المحل التجاري: {verifiedStoreName}</span>
                   </div>
                   <button
                     type="button"

@@ -134,7 +134,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
             <div>
               <h2 className="font-black text-white text-base tracking-tight leading-none flex items-center gap-1.5 truncate max-w-[170px]" title={storeInfo?.name || 'المتجر'}>
-                {storeInfo?.name || 'الشميري فون'}
+                {storeInfo?.name || (storeInfo?.storeId && storeInfo.storeId !== 'store-shamiri-01' ? 'جاري التحميل...' : 'الشميري فون')}
               </h2>
               <p className="text-[11px] text-slate-400 mt-0.5 font-medium truncate max-w-[170px]" title={storeInfo?.subtitle || 'إدارة الجوالات والصيانة'}>
                 {storeInfo?.subtitle || 'إدارة الجوالات والصيانة متعددة العملات'}

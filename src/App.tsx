@@ -26,24 +26,44 @@ import { StoreLoginGate } from './components/auth/StoreLoginGate';
 import { StoreLockScreen } from './components/common/StoreLockScreen';
 import { SupportModal } from './components/common/SupportModal';
 
-export default function App() {
-  // 1. Firebase Multi-Store Cloud State: Determine store ID from URL or storage
-  const [currentStoreId, setCurrentStoreId] = useState<string>(() => {
-    try {
-      const urlParams = new URLSearchParams(window.location.search);
-      const urlStore = urlParams.get('store');
-      if (urlStore && urlStore.trim()) {
-        localStorage.setItem('falcon_active_store_id', urlStore.trim());
-        return urlStore.trim();
-      }
-    } catch (e) {
-      // ignore
+// Helper to extract active store ID from URL (?storeId=... or ?store=...) or localStorage
+export function resolveInitialStoreId(): string {
+  try {
+    const searchParams = new URLSearchParams(window.location.search);
+    const searchStore = searchParams.get('storeId') || searchParams.get('store') || searchParams.get('store_id');
+    if (searchStore && searchStore.trim()) {
+      const clean = searchStore.trim();
+      localStorage.setItem('falcon_active_store_id', clean);
+      return clean;
     }
-    return localStorage.getItem('falcon_active_store_id') || 'store-shamiri-01';
-  });
+
+    if (window.location.hash.includes('?')) {
+      const hashQuery = window.location.hash.split('?')[1];
+      const hashParams = new URLSearchParams(hashQuery);
+      const hashStore = hashParams.get('storeId') || hashParams.get('store') || hashParams.get('store_id');
+      if (hashStore && hashStore.trim()) {
+        const clean = hashStore.trim();
+        localStorage.setItem('falcon_active_store_id', clean);
+        return clean;
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+
+  const saved = localStorage.getItem('falcon_active_store_id');
+  if (saved && saved.trim()) return saved.trim();
+
+  return 'store-shamiri-01';
+}
+
+export default function App() {
+  // 1. Firebase Multi-Store Cloud State: Determine store ID from URL (storeId/store) or storage
+  const [currentStoreId, setCurrentStoreId] = useState<string>(() => resolveInitialStoreId());
 
   const [data, setData] = useState<AppData>(() => getStoredData(currentStoreId));
   const [isCloudLoaded, setIsCloudLoaded] = useState(false);
+  const [isLoadingStoreDoc, setIsLoadingStoreDoc] = useState(true);
   const [currentTab, setCurrentTab] = useState<NavTab>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [currentRole, setCurrentRole] = useState<UserRole>(() => {
@@ -88,7 +108,7 @@ export default function App() {
       if (allStoresRaw) {
         const parsed = JSON.parse(allStoresRaw);
         if (Array.isArray(parsed)) {
-          const matched = parsed.find((s: any) => s.storeId === currentStoreId);
+          const matched = parsed.find((s: any) => s.storeId && s.storeId.toLowerCase() === currentStoreId.toLowerCase());
           if (matched) {
             if (matched.status === 'suspended') return true;
             if (matched.expiresAt && new Date(matched.expiresAt).getTime() < Date.now()) {
@@ -140,8 +160,10 @@ export default function App() {
     return () => unsubAuth();
   }, []);
 
-  // Real-time synchronization with Firestore for currentStoreId
+  // Direct Firestore Dynamic Fetch & Real-time synchronization for currentStoreId
   useEffect(() => {
+    if (!currentStoreId) return;
+
     localStorage.setItem('falcon_active_store_id', currentStoreId);
     let unsubscribe = () => {};
 
@@ -154,13 +176,13 @@ export default function App() {
           const matched = parsed.find(
             (s: any) => s.storeId && s.storeId.toLowerCase() === currentStoreId.toLowerCase()
           );
-          if (matched) {
+          if (matched && matched.storeName) {
             setData((prev) => ({
               ...prev,
               storeInfo: {
                 ...prev.storeInfo,
                 storeId: matched.storeId,
-                name: matched.storeName || prev.storeInfo.name,
+                name: matched.storeName,
                 ownerName: matched.ownerName || prev.storeInfo.ownerName,
                 phone: matched.phone || prev.storeInfo.phone,
                 address: matched.city || prev.storeInfo.address,
@@ -173,36 +195,41 @@ export default function App() {
       // ignore
     }
 
-    // 2. Fetch and Subscribe to Firestore Cloud
-    testFirebaseConnection().then((connected) => {
-      setCloudConnected(connected);
-      if (connected && currentStoreId) {
-        // Direct initial fetch from Firestore
-        fetchStoreDataFromCloud(currentStoreId).then((cloudData: AppData | null) => {
-          if (cloudData && cloudData.storeInfo) {
-            setData(cloudData);
-            saveData(cloudData, currentStoreId);
-          }
+    // 2. Direct Immediate Query to Firestore Document stores/{storeId}
+    setIsLoadingStoreDoc(true);
+    fetchStoreDataFromCloud(currentStoreId)
+      .then((cloudData: AppData | null) => {
+        if (cloudData && cloudData.storeInfo) {
+          setData(cloudData);
+          saveData(cloudData, currentStoreId);
           setIsCloudLoaded(true);
-        }).catch((err: any) => {
-          console.warn('Initial cloud store fetch warning:', err);
-          setIsCloudLoaded(true);
-        });
+        }
+        setIsLoadingStoreDoc(false);
+      })
+      .catch((err: any) => {
+        console.warn('Initial direct cloud store fetch warning:', err);
+        setIsLoadingStoreDoc(false);
+        setIsCloudLoaded(true);
+      });
 
-        // Real-time listener
-        unsubscribe = subscribeToStoreCloud(
-          currentStoreId,
-          (cloudData) => {
-            if (cloudData && cloudData.storeInfo) {
-              setData(cloudData);
-              saveData(cloudData, currentStoreId);
-              setIsCloudLoaded(true);
-            }
-          },
-          (err) => console.warn('Cloud store sync warning:', err)
-        );
-      }
-    });
+    // 3. Test background Firebase connection
+    testFirebaseConnection()
+      .then((connected) => setCloudConnected(connected))
+      .catch(() => setCloudConnected(false));
+
+    // 4. Attach real-time listener to Firestore document
+    unsubscribe = subscribeToStoreCloud(
+      currentStoreId,
+      (cloudData) => {
+        if (cloudData && cloudData.storeInfo && cloudData.storeInfo.name) {
+          setData(cloudData);
+          saveData(cloudData, currentStoreId);
+          setIsCloudLoaded(true);
+          setIsLoadingStoreDoc(false);
+        }
+      },
+      (err) => console.warn('Cloud store real-time sync warning:', err)
+    );
 
     return () => unsubscribe();
   }, [currentStoreId]);
@@ -211,7 +238,8 @@ export default function App() {
   useEffect(() => {
     saveData(data, currentStoreId);
     if (isCloudLoaded && currentStoreId) {
-      if (currentStoreId !== 'store-shamiri-01' && data.storeInfo?.name === 'الشميري فون') {
+      // Never sync placeholders or default name onto a client store
+      if (currentStoreId !== 'store-shamiri-01' && (data.storeInfo?.name === 'الشميري فون' || data.storeInfo?.name === 'المتجر المرخص' || !data.storeInfo?.name)) {
         return;
       }
       syncStoreDataToCloud(currentStoreId, data).catch((err) =>

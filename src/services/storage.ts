@@ -666,7 +666,8 @@ export function getStoredData(storeId?: string): AppData {
       const initCopy: AppData = JSON.parse(JSON.stringify(INITIAL_DATA));
       if (activeStoreId && activeStoreId !== 'store-shamiri-01') {
         initCopy.storeInfo.storeId = activeStoreId;
-        initCopy.storeInfo.name = registeredStoreMetadata?.storeName || 'المتجر المرخص';
+        // Never force "المتجر المرخص" - use metadata storeName or leave as placeholder pending Firestore load
+        initCopy.storeInfo.name = registeredStoreMetadata?.storeName || '';
         initCopy.storeInfo.ownerName = registeredStoreMetadata?.ownerName || '';
         initCopy.storeInfo.phone = registeredStoreMetadata?.phone || '';
         initCopy.storeInfo.address = registeredStoreMetadata?.city || '';
@@ -705,8 +706,12 @@ export function getStoredData(storeId?: string): AppData {
     // Strict guard: If this is a client store, it must NEVER display or store the default developer store branding
     if (activeStoreId && activeStoreId !== 'store-shamiri-01') {
       result.storeInfo.storeId = activeStoreId;
-      if (!result.storeInfo.name || result.storeInfo.name === 'الشميري فون') {
-        result.storeInfo.name = registeredStoreMetadata?.storeName || 'المتجر المرخص';
+      if (!result.storeInfo.name || result.storeInfo.name === 'الشميري فون' || result.storeInfo.name === 'المتجر المرخص') {
+        if (registeredStoreMetadata?.storeName) {
+          result.storeInfo.name = registeredStoreMetadata.storeName;
+        } else if (result.storeInfo.name === 'المتجر المرخص') {
+          result.storeInfo.name = '';
+        }
       }
       if (!result.storeInfo.phone || result.storeInfo.phone === '777123456') {
         result.storeInfo.phone = registeredStoreMetadata?.phone || '';
@@ -729,13 +734,57 @@ export function getStoredData(storeId?: string): AppData {
 export function saveData(data: AppData, storeId?: string): void {
   try {
     const targetStoreId = storeId || data.storeInfo?.storeId || localStorage.getItem('falcon_active_store_id');
-    // Safety guard: never overwrite client store with fallback 'الشميري فون'
-    if (targetStoreId && targetStoreId !== 'store-shamiri-01' && data.storeInfo?.name === 'الشميري فون') {
-      return;
+    // Safety guard: never overwrite client store with fallback 'الشميري فون' or 'المتجر المرخص'
+    if (targetStoreId && targetStoreId !== 'store-shamiri-01' && (data.storeInfo?.name === 'الشميري فون' || data.storeInfo?.name === 'المتجر المرخص')) {
+      // Check if existing data already has a valid name
+      const existingRaw = localStorage.getItem(`falcon_store_data_${targetStoreId}`);
+      if (existingRaw) {
+        try {
+          const existingParsed = JSON.parse(existingRaw);
+          if (existingParsed?.storeInfo?.name && existingParsed.storeInfo.name !== 'المتجر المرخص' && existingParsed.storeInfo.name !== 'الشميري فون') {
+            // Keep existing valid name instead of corrupting with placeholder
+            data = {
+              ...data,
+              storeInfo: {
+                ...data.storeInfo,
+                name: existingParsed.storeInfo.name,
+              },
+            };
+          }
+        } catch {}
+      }
     }
+
     if (targetStoreId) {
       localStorage.setItem(`falcon_store_data_${targetStoreId}`, JSON.stringify(data));
+
+      // Also ensure falcon_all_client_stores metadata cache is kept up-to-date
+      if (data.storeInfo?.name && data.storeInfo.name !== 'المتجر المرخص' && data.storeInfo.name !== 'الشميري فون') {
+        try {
+          const regRaw = localStorage.getItem('falcon_all_client_stores');
+          let list = regRaw ? JSON.parse(regRaw) : [];
+          if (!Array.isArray(list)) list = [];
+          const idx = list.findIndex((s: any) => s.storeId && s.storeId.toLowerCase() === targetStoreId.toLowerCase());
+          const entry = {
+            storeId: targetStoreId,
+            storeName: data.storeInfo.name,
+            ownerName: data.storeInfo.ownerName || '',
+            phone: data.storeInfo.phone || '',
+            city: data.storeInfo.address || '',
+            status: data.storeInfo.subscription?.status || 'active',
+            expiresAt: data.storeInfo.subscription?.expiresAt || '',
+            planName: data.storeInfo.subscription?.planName || 'باقة المحلات السحابية',
+          };
+          if (idx >= 0) {
+            list[idx] = { ...list[idx], ...entry };
+          } else {
+            list.push(entry);
+          }
+          localStorage.setItem('falcon_all_client_stores', JSON.stringify(list));
+        } catch {}
+      }
     }
+
     // Also store in default key if active store is default
     if (!targetStoreId || targetStoreId === 'store-shamiri-01') {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data));

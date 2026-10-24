@@ -104,7 +104,7 @@ export const Header: React.FC<HeaderProps> = ({
               📱
             </div>
             <span className="font-black text-slate-900 truncate max-w-[200px]" title={storeInfo?.name || 'المتجر'}>
-              {storeInfo?.name || 'الشميري فون'}
+              {storeInfo?.name || (currentStoreId && currentStoreId !== 'store-shamiri-01' ? 'جاري التحميل...' : 'الشميري فون')}
             </span>
           </div>
 

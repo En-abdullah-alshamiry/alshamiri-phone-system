@@ -64,14 +64,110 @@ export async function logOut(): Promise<void> {
   await signOut(auth);
 }
 
+// Helper to extract and normalize store document into complete AppData
+export function normalizeCloudStoreData(rawDoc: any, storeId: string): AppData {
+  if (!rawDoc || typeof rawDoc !== 'object') {
+    rawDoc = {};
+  }
+
+  const rawInfo = (rawDoc.storeInfo && typeof rawDoc.storeInfo === 'object') ? rawDoc.storeInfo : {};
+
+  // Extract the true commercial store name: prioritize non-placeholder trade names
+  let commercialName = '';
+  const candidates = [
+    rawDoc.storeName,
+    rawDoc.name,
+    rawInfo.storeName,
+    rawInfo.name,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim()) {
+      const clean = candidate.trim();
+      if (clean !== 'المتجر المرخص' && (storeId === 'store-shamiri-01' || clean !== 'الشميري فون')) {
+        commercialName = clean;
+        break;
+      }
+    }
+  }
+
+  // If still empty, accept any string present in candidates
+  if (!commercialName) {
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && candidate.trim()) {
+        commercialName = candidate.trim();
+        break;
+      }
+    }
+  }
+
+  // Fallback if completely unspecified in Firestore
+  if (!commercialName) {
+    commercialName = storeId === 'store-shamiri-01' ? 'الشميري فون' : storeId;
+  }
+
+  const phone = rawDoc.phone || rawInfo.phone || rawDoc.phone2 || rawInfo.phone2 || '';
+  const address = rawDoc.address || rawDoc.city || rawInfo.address || rawInfo.city || '';
+  const ownerName = rawDoc.ownerName || rawInfo.ownerName || '';
+  const email = rawDoc.email || rawInfo.email || '';
+  const subtitle = rawDoc.subtitle || rawInfo.subtitle || 'بيع وشراء الجوالات - صيانة متقدمة - قطع غيار وإكسسوارات';
+
+  const subscription = rawInfo.subscription || rawDoc.subscription || {
+    planName: 'باقة المحلات السحابية',
+    status: rawDoc.status || 'active',
+    expiresAt: rawDoc.expiresAt || new Date(Date.now() + 365 * 86400000).toISOString(),
+    licensedDevices: 5,
+  };
+
+  const storeInfo: AppData['storeInfo'] = {
+    storeId,
+    name: commercialName,
+    subtitle,
+    ownerName,
+    phone,
+    phone2: rawDoc.phone2 || rawInfo.phone2 || '',
+    email,
+    address,
+    crNumber: rawDoc.crNumber || rawInfo.crNumber || '',
+    maintenanceTerms: rawInfo.maintenanceTerms || rawDoc.maintenanceTerms || 'الضمان لمدة 30 يوماً على القطع المستبدلة ضد العيوب المصنعية.',
+    salesTerms: rawInfo.salesTerms || rawDoc.salesTerms || 'الأجهزة الجديدة بضمان الوكيل، والأجهزة المستعملة فحص 7 أيام.',
+    adminPin: rawInfo.adminPin ?? rawDoc.adminPin ?? '',
+    cashierPin: rawInfo.cashierPin ?? rawDoc.cashierPin ?? '',
+    technicianPin: rawInfo.technicianPin ?? rawDoc.technicianPin ?? '',
+    subscription,
+  };
+
+  return {
+    storeInfo,
+    exchangeRates: rawDoc.exchangeRates || {
+      YER_PER_USD: 535,
+      YER_PER_SAR: 140,
+      lastUpdated: new Date().toISOString(),
+    },
+    products: Array.isArray(rawDoc.products) ? rawDoc.products : [],
+    maintenanceTickets: Array.isArray(rawDoc.maintenanceTickets) ? rawDoc.maintenanceTickets : [],
+    salesInvoices: Array.isArray(rawDoc.salesInvoices) ? rawDoc.salesInvoices : [],
+    purchaseInvoices: Array.isArray(rawDoc.purchaseInvoices) ? rawDoc.purchaseInvoices : [],
+    cashTransactions: Array.isArray(rawDoc.cashTransactions) ? rawDoc.cashTransactions : [],
+    expenseVouchers: Array.isArray(rawDoc.expenseVouchers) ? rawDoc.expenseVouchers : [],
+    receiptVouchers: Array.isArray(rawDoc.receiptVouchers) ? rawDoc.receiptVouchers : [],
+    currencyExchanges: Array.isArray(rawDoc.currencyExchanges) ? rawDoc.currencyExchanges : [],
+    customers: Array.isArray(rawDoc.customers) ? rawDoc.customers : [],
+  };
+}
+
 // Sync AppData to Firestore for a specific store
 export async function syncStoreDataToCloud(
   storeId: string,
   data: AppData
 ): Promise<void> {
   if (!storeId) return;
+  // Safety guard: never sync placeholder name 'المتجر المرخص' to Firestore
+  if (storeId !== 'store-shamiri-01' && (data.storeInfo?.name === 'المتجر المرخص' || !data.storeInfo?.name)) {
+    return;
+  }
+
   try {
-    // Sanitize data to remove any undefined values before writing to Firestore
     const cleanData = JSON.parse(JSON.stringify(data));
     const storeRef = doc(db, 'stores', storeId);
     
@@ -79,6 +175,12 @@ export async function syncStoreDataToCloud(
       storeRef,
       {
         ...cleanData,
+        storeId,
+        storeName: cleanData.storeInfo?.name,
+        name: cleanData.storeInfo?.name,
+        phone: cleanData.storeInfo?.phone,
+        address: cleanData.storeInfo?.address,
+        ownerName: cleanData.storeInfo?.ownerName,
         updatedAt: new Date().toISOString(),
       },
       { merge: true }
@@ -89,38 +191,42 @@ export async function syncStoreDataToCloud(
   }
 }
 
-// Fetch single store snapshot
+// Fetch single store snapshot directly from Firestore path stores/{storeId}
 export async function fetchStoreDataFromCloud(
   storeId: string
 ): Promise<AppData | null> {
-  if (!storeId) return null;
+  if (!storeId || !storeId.trim()) return null;
+  const cleanId = storeId.trim();
   try {
-    const storeRef = doc(db, 'stores', storeId);
+    const storeRef = doc(db, 'stores', cleanId);
     const snap = await getDoc(storeRef);
     if (snap.exists()) {
-      return snap.data() as AppData;
+      const raw = snap.data();
+      return normalizeCloudStoreData(raw, cleanId);
     }
     return null;
   } catch (err) {
-    console.error(`Failed to fetch store data for store ${storeId}:`, err);
+    console.error(`Failed to fetch store data for store ${cleanId}:`, err);
     return null;
   }
 }
 
-// Real-time listener for store data
+// Real-time listener for store data directly from stores/{storeId}
 export function subscribeToStoreCloud(
   storeId: string,
   onData: (cloudData: AppData) => void,
   onError?: (err: any) => void
 ): () => void {
-  if (!storeId) return () => {};
-  const storeRef = doc(db, 'stores', storeId);
+  if (!storeId || !storeId.trim()) return () => {};
+  const cleanId = storeId.trim();
+  const storeRef = doc(db, 'stores', cleanId);
   return onSnapshot(
     storeRef,
     (snapshot) => {
       if (snapshot.exists()) {
-        const data = snapshot.data() as AppData;
-        onData(data);
+        const raw = snapshot.data();
+        const normalized = normalizeCloudStoreData(raw, cleanId);
+        onData(normalized);
       }
     },
     (error) => {
@@ -134,11 +240,12 @@ export function subscribeToStoreCloud(
 export async function deleteStoreFromCloud(storeId: string): Promise<void> {
   if (!storeId) return;
   try {
-    const storeRef = doc(db, 'stores', storeId);
+    const storeRef = doc(db, 'stores', storeId.trim());
     await deleteDoc(storeRef);
   } catch (err) {
     console.error(`Failed to delete store ${storeId} from cloud:`, err);
     throw err;
   }
 }
+
 

@@ -127,7 +127,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <span>نظام المحاسبة المتعدد العملات للمحلات والصيانة</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
-              {data.storeInfo.name}
+              {data.storeInfo?.name || 'جاري تحميل المتجر...'}
             </h1>
             <p className="text-slate-300 text-xs sm:text-sm mt-1 max-w-xl">
               متابعة نقدية الصناديق الثلاثة، مبيعات اليوم، حالة ورشة الصيانة، وتقويم المخزون الفوري.
