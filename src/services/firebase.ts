@@ -191,6 +191,51 @@ export async function syncStoreDataToCloud(
   }
 }
 
+// Dedicated function to save store PINs directly to /stores/{storeId}/settings/pins
+export async function saveStorePinsToCloud(
+  storeId: string,
+  pins: { adminPin: string; cashierPin: string; technicianPin: string }
+): Promise<void> {
+  if (!storeId || !storeId.trim()) return;
+  const cleanId = storeId.trim();
+  try {
+    // 1. Direct write to /stores/{storeId}/settings/pins document
+    const pinsRef = doc(db, 'stores', cleanId, 'settings', 'pins');
+    await setDoc(
+      pinsRef,
+      {
+        adminPin: pins.adminPin.trim(),
+        cashierPin: pins.cashierPin.trim(),
+        technicianPin: pins.technicianPin.trim(),
+        storeId: cleanId,
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+
+    // 2. Also sync to main store document stores/{storeId} for instant root accessibility
+    const storeRef = doc(db, 'stores', cleanId);
+    await setDoc(
+      storeRef,
+      {
+        adminPin: pins.adminPin.trim(),
+        cashierPin: pins.cashierPin.trim(),
+        technicianPin: pins.technicianPin.trim(),
+        storeInfo: {
+          adminPin: pins.adminPin.trim(),
+          cashierPin: pins.cashierPin.trim(),
+          technicianPin: pins.technicianPin.trim(),
+        },
+        updatedAt: new Date().toISOString(),
+      },
+      { merge: true }
+    );
+  } catch (err) {
+    console.error(`Failed to save store PINs to cloud for store ${cleanId}:`, err);
+    throw err;
+  }
+}
+
 // Fetch single store snapshot directly from Firestore path stores/{storeId}
 export async function fetchStoreDataFromCloud(
   storeId: string
@@ -202,6 +247,22 @@ export async function fetchStoreDataFromCloud(
     const snap = await getDoc(storeRef);
     if (snap.exists()) {
       const raw = snap.data();
+      // Also check if dedicated /stores/{storeId}/settings/pins exists
+      try {
+        const pinsSnap = await getDoc(doc(db, 'stores', cleanId, 'settings', 'pins'));
+        if (pinsSnap.exists()) {
+          const pinsData = pinsSnap.data();
+          if (pinsData.adminPin) raw.adminPin = pinsData.adminPin;
+          if (pinsData.cashierPin) raw.cashierPin = pinsData.cashierPin;
+          if (pinsData.technicianPin) raw.technicianPin = pinsData.technicianPin;
+          if (!raw.storeInfo) raw.storeInfo = {};
+          if (pinsData.adminPin) raw.storeInfo.adminPin = pinsData.adminPin;
+          if (pinsData.cashierPin) raw.storeInfo.cashierPin = pinsData.cashierPin;
+          if (pinsData.technicianPin) raw.storeInfo.technicianPin = pinsData.technicianPin;
+        }
+      } catch (e) {
+        // ignore if not configured yet
+      }
       return normalizeCloudStoreData(raw, cleanId);
     }
     return null;

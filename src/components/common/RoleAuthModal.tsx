@@ -35,9 +35,25 @@ export const RoleAuthModal: React.FC<RoleAuthModalProps> = ({
   if (!isOpen) return null;
 
   const MASTER_OVERRIDE_PIN = '773419';
-  const expectedAdminPin = storeInfo.adminPin || '';
-  const expectedCashierPin = storeInfo.cashierPin || '';
-  const expectedTechnicianPin = storeInfo.technicianPin || '';
+  let expectedAdminPin = storeInfo.adminPin || '';
+  let expectedCashierPin = storeInfo.cashierPin || '';
+  let expectedTechnicianPin = storeInfo.technicianPin || '';
+
+  // Ensure fresh LocalStorage data is checked if prop has not re-rendered yet
+  try {
+    const activeStoreId = storeInfo.storeId || localStorage.getItem('falcon_active_store_id');
+    if (activeStoreId) {
+      const raw = localStorage.getItem(`falcon_store_data_${activeStoreId}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.storeInfo) {
+          if (parsed.storeInfo.adminPin) expectedAdminPin = parsed.storeInfo.adminPin;
+          if (parsed.storeInfo.cashierPin) expectedCashierPin = parsed.storeInfo.cashierPin;
+          if (parsed.storeInfo.technicianPin) expectedTechnicianPin = parsed.storeInfo.technicianPin;
+        }
+      }
+    }
+  } catch {}
 
   const handleApplyRole = (role: UserRole) => {
     const trimmedPin = pinInput.trim();

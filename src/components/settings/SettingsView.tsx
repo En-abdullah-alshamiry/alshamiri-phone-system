@@ -30,7 +30,7 @@ import {
   BackupPreviewStats,
   saveData,
 } from '../../services/storage';
-import { syncStoreDataToCloud } from '../../services/firebase';
+import { syncStoreDataToCloud, saveStorePinsToCloud } from '../../services/firebase';
 import { formatMoney, formatDate } from '../../utils/formatters';
 import confetti from 'canvas-confetti';
 
@@ -73,25 +73,63 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   }, [data.storeInfo]);
 
   // Dedicated PIN Management State
-  const [adminPinInput, setAdminPinInput] = useState(data.storeInfo.adminPin || '');
-  const [cashierPinInput, setCashierPinInput] = useState(data.storeInfo.cashierPin || '');
-  const [technicianPinInput, setTechnicianPinInput] = useState(data.storeInfo.technicianPin || '');
+  const [adminPinInput, setAdminPinInput] = useState(() => data.storeInfo?.adminPin || '');
+  const [cashierPinInput, setCashierPinInput] = useState(() => data.storeInfo?.cashierPin || '');
+  const [technicianPinInput, setTechnicianPinInput] = useState(() => data.storeInfo?.technicianPin || '');
   const [showAdminPin, setShowAdminPin] = useState(false);
   const [showCashierPin, setShowCashierPin] = useState(false);
   const [showTechnicianPin, setShowTechnicianPin] = useState(false);
   const [pinSavedAlert, setPinSavedAlert] = useState(false);
   const [isSavingPins, setIsSavingPins] = useState(false);
+  const [pinErrorMessage, setPinErrorMessage] = useState('');
+
+  // Flag to avoid external background resets while the user is actively typing
+  const isEditingPinsRef = React.useRef(false);
 
   React.useEffect(() => {
-    setAdminPinInput(data.storeInfo.adminPin || '');
-    setCashierPinInput(data.storeInfo.cashierPin || '');
-    setTechnicianPinInput(data.storeInfo.technicianPin || '');
-  }, [data.storeInfo]);
+    if (!isEditingPinsRef.current) {
+      if (data.storeInfo?.adminPin !== undefined) setAdminPinInput(data.storeInfo.adminPin || '');
+      if (data.storeInfo?.cashierPin !== undefined) setCashierPinInput(data.storeInfo.cashierPin || '');
+      if (data.storeInfo?.technicianPin !== undefined) setTechnicianPinInput(data.storeInfo.technicianPin || '');
+    }
+  }, [data.storeInfo?.adminPin, data.storeInfo?.cashierPin, data.storeInfo?.technicianPin]);
+
+  const handleAdminPinChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    isEditingPinsRef.current = true;
+    const digits = e.target.value.replace(/\D/g, '').slice(0, 6);
+    setAdminPinInput(digits);
+    setPinErrorMessage('');
+  };
+
+  const handleCashierPinChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    isEditingPinsRef.current = true;
+    const digits = e.target.value.replace(/\D/g, '').slice(0, 6);
+    setCashierPinInput(digits);
+    setPinErrorMessage('');
+  };
+
+  const handleTechnicianPinChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    isEditingPinsRef.current = true;
+    const digits = e.target.value.replace(/\D/g, '').slice(0, 6);
+    setTechnicianPinInput(digits);
+    setPinErrorMessage('');
+  };
 
   const handleSavePins = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!adminPinInput.trim() || !cashierPinInput.trim() || !technicianPinInput.trim()) {
-      alert('يرجى ملء جميع حقول الرموز السرية (PIN).');
+    setPinErrorMessage('');
+
+    const cleanAdmin = adminPinInput.trim();
+    const cleanCashier = cashierPinInput.trim();
+    const cleanTechnician = technicianPinInput.trim();
+
+    if (!cleanAdmin || !cleanCashier || !cleanTechnician) {
+      setPinErrorMessage('يرجى ملء جميع حقول الرموز السرية (PIN).');
+      return;
+    }
+
+    if (cleanAdmin.length < 4 || cleanCashier.length < 4 || cleanTechnician.length < 4) {
+      setPinErrorMessage('يجب أن يتكون كل رمز PIN من 4 إلى 6 أرقام.');
       return;
     }
 
@@ -99,9 +137,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     try {
       const updatedStoreInfo: StoreInfo = {
         ...storeInfo,
-        adminPin: adminPinInput.trim(),
-        cashierPin: cashierPinInput.trim(),
-        technicianPin: technicianPinInput.trim(),
+        adminPin: cleanAdmin,
+        cashierPin: cleanCashier,
+        technicianPin: cleanTechnician,
       };
 
       const updatedData: AppData = {
@@ -109,25 +147,31 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         storeInfo: updatedStoreInfo,
       };
 
-      // 1. Update React state
+      // 1. Update React state immediately
       setStoreInfo(updatedStoreInfo);
       onUpdateStoreInfo(updatedStoreInfo);
+      isEditingPinsRef.current = false;
 
-      // 2. Persist to localStorage for this store
+      // 2. Persist to LocalStorage for this store for instant offline/caching speed
       saveData(updatedData, currentStoreId);
 
-      // 3. Persist directly to Firebase Firestore document
+      // 3. Persist directly to Firebase Firestore under /stores/{storeId}/settings/pins
       if (currentStoreId) {
-        await syncStoreDataToCloud(currentStoreId, updatedData);
+        await saveStorePinsToCloud(currentStoreId, {
+          adminPin: cleanAdmin,
+          cashierPin: cleanCashier,
+          technicianPin: cleanTechnician,
+        });
+        await syncStoreDataToCloud(currentStoreId, updatedData).catch(() => {});
       }
 
       setPinSavedAlert(true);
       try {
-        confetti({ particleCount: 30, spread: 50, origin: { y: 0.6 } });
+        confetti({ particleCount: 35, spread: 60, origin: { y: 0.6 } });
       } catch {}
-      setTimeout(() => setPinSavedAlert(false), 4000);
+      setTimeout(() => setPinSavedAlert(false), 4500);
     } catch (err: any) {
-      alert(`حدث خطأ أثناء حفظ الرموز في السحابة: ${err.message || 'خطأ غير معروف'}`);
+      setPinErrorMessage(`حدث خطأ أثناء حفظ الرموز في السحابة: ${err.message || 'خطأ غير معروف'}`);
     } finally {
       setIsSavingPins(false);
     }
@@ -755,6 +799,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
 
           <form onSubmit={handleSavePins} className="space-y-4 text-xs">
+            {pinErrorMessage && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-2xl flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span className="font-bold text-xs">{pinErrorMessage}</span>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {/* Store Admin PIN */}
               <div className="bg-purple-50/50 p-4 rounded-2xl border border-purple-200/80">
@@ -765,28 +816,31 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   </label>
                   <span className="text-[10px] text-purple-700 bg-purple-100/70 px-1.5 py-0.5 rounded-md font-medium">الأرباح والصناديق</span>
                 </div>
-                <div className="relative">
+                <div className="relative flex items-center">
                   <input
                     type={showAdminPin ? 'text' : 'password'}
                     value={adminPinInput}
-                    onChange={(e) => setAdminPinInput(e.target.value)}
-                    placeholder="••••••••"
+                    onChange={handleAdminPinChange}
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={6}
+                    placeholder="رمز من 4-6 أرقام"
                     autoComplete="off"
                     autoCorrect="off"
                     spellCheck="false"
-                    className="w-full bg-white border border-purple-300 rounded-xl px-3 py-2 text-xs font-mono font-black text-purple-900 tracking-widest focus:ring-2 focus:ring-purple-500 pr-9"
+                    className="w-full bg-white border border-purple-300 rounded-xl pl-10 pr-3.5 py-2.5 text-xs font-mono font-black text-purple-900 tracking-widest focus:ring-2 focus:ring-purple-500 focus:outline-hidden transition-all"
                     dir="ltr"
                   />
                   <button
                     type="button"
                     onClick={() => setShowAdminPin(!showAdminPin)}
-                    className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
-                    title={showAdminPin ? 'إخفاء' : 'إظهار'}
+                    className="absolute left-2.5 p-1 text-slate-400 hover:text-purple-600 transition-colors rounded-lg"
+                    title={showAdminPin ? 'إخفاء الرمز' : 'إظهار الرمز'}
                   >
-                    {showAdminPin ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    {showAdminPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
-                <p className="text-[10px] text-purple-600/80 mt-1.5 leading-tight">صلاحية كاملة للمحفظة، أسعار الصرف، والإعدادات.</p>
+                <p className="text-[10px] text-purple-600/80 mt-1.5 leading-tight">صلاحية كاملة للمحفظة، أسعار الصرف، والإعدادات (4-6 أرقام).</p>
               </div>
 
               {/* Cashier PIN */}
@@ -798,28 +852,31 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   </label>
                   <span className="text-[10px] text-emerald-700 bg-emerald-100/70 px-1.5 py-0.5 rounded-md font-medium">نقطة البيع (POS)</span>
                 </div>
-                <div className="relative">
+                <div className="relative flex items-center">
                   <input
                     type={showCashierPin ? 'text' : 'password'}
                     value={cashierPinInput}
-                    onChange={(e) => setCashierPinInput(e.target.value)}
-                    placeholder="••••••••"
+                    onChange={handleCashierPinChange}
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={6}
+                    placeholder="رمز من 4-6 أرقام"
                     autoComplete="off"
                     autoCorrect="off"
                     spellCheck="false"
-                    className="w-full bg-white border border-emerald-300 rounded-xl px-3 py-2 text-xs font-mono font-black text-emerald-900 tracking-widest focus:ring-2 focus:ring-emerald-500 pr-9"
+                    className="w-full bg-white border border-emerald-300 rounded-xl pl-10 pr-3.5 py-2.5 text-xs font-mono font-black text-emerald-900 tracking-widest focus:ring-2 focus:ring-emerald-500 focus:outline-hidden transition-all"
                     dir="ltr"
                   />
                   <button
                     type="button"
                     onClick={() => setShowCashierPin(!showCashierPin)}
-                    className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
-                    title={showCashierPin ? 'إخفاء' : 'إظهار'}
+                    className="absolute left-2.5 p-1 text-slate-400 hover:text-emerald-600 transition-colors rounded-lg"
+                    title={showCashierPin ? 'إخفاء الرمز' : 'إظهار الرمز'}
                   >
-                    {showCashierPin ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    {showCashierPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
-                <p className="text-[10px] text-emerald-600/80 mt-1.5 leading-tight">مبيعات وسندات شراء مستعمل دون رؤية الأرباح.</p>
+                <p className="text-[10px] text-emerald-600/80 mt-1.5 leading-tight">مبيعات وسندات شراء مستعمل دون رؤية الأرباح (4-6 أرقام).</p>
               </div>
 
               {/* Technician PIN */}
@@ -831,44 +888,47 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   </label>
                   <span className="text-[10px] text-amber-700 bg-amber-100/70 px-1.5 py-0.5 rounded-md font-medium">قسم الورشة</span>
                 </div>
-                <div className="relative">
+                <div className="relative flex items-center">
                   <input
                     type={showTechnicianPin ? 'text' : 'password'}
                     value={technicianPinInput}
-                    onChange={(e) => setTechnicianPinInput(e.target.value)}
-                    placeholder="••••••••"
+                    onChange={handleTechnicianPinChange}
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={6}
+                    placeholder="رمز من 4-6 أرقام"
                     autoComplete="off"
                     autoCorrect="off"
                     spellCheck="false"
-                    className="w-full bg-white border border-amber-300 rounded-xl px-3 py-2 text-xs font-mono font-black text-amber-900 tracking-widest focus:ring-2 focus:ring-amber-500 pr-9"
+                    className="w-full bg-white border border-amber-300 rounded-xl pl-10 pr-3.5 py-2.5 text-xs font-mono font-black text-amber-900 tracking-widest focus:ring-2 focus:ring-amber-500 focus:outline-hidden transition-all"
                     dir="ltr"
                   />
                   <button
                     type="button"
                     onClick={() => setShowTechnicianPin(!showTechnicianPin)}
-                    className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1"
-                    title={showTechnicianPin ? 'إخفاء' : 'إظهار'}
+                    className="absolute left-2.5 p-1 text-slate-400 hover:text-amber-600 transition-colors rounded-lg"
+                    title={showTechnicianPin ? 'إخفاء الرمز' : 'إظهار الرمز'}
                   >
-                    {showTechnicianPin ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    {showTechnicianPin ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
-                <p className="text-[10px] text-amber-600/80 mt-1.5 leading-tight">كروت صيانة وقطع غيار دون الوصول للأموال والصناديق.</p>
+                <p className="text-[10px] text-amber-600/80 mt-1.5 leading-tight">كروت صيانة وقطع غيار دون الوصول للأموال (4-6 أرقام).</p>
               </div>
             </div>
 
-            <div className="flex items-center justify-between pt-3 border-t border-purple-100">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-purple-100">
               {pinSavedAlert ? (
-                <span className="text-emerald-700 font-bold flex items-center gap-1.5 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200">
-                  <Check className="w-4 h-4" />
-                  تم حفظ وتحديث رموز الدخول السحابية بنجاح!
+                <span className="text-emerald-700 font-bold flex items-center gap-1.5 bg-emerald-50 px-3.5 py-2 rounded-xl border border-emerald-200">
+                  <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+                  تم تحديث وحفظ رموز الدخول بنجاح
                 </span>
               ) : (
-                <span className="text-slate-400 text-[11px]">احفظ الرموز في مكان آمن ولا تشارك رمز المدير مع أي شخص</span>
+                <span className="text-slate-500 text-[11px]">احفظ الرموز في مكان آمن. يتم تطبيق التعديلات فوراً على شاشة تسجيل الدخول والموظفين.</span>
               )}
               <button
                 type="submit"
                 disabled={isSavingPins}
-                className="px-6 py-2.5 bg-purple-700 hover:bg-purple-800 active:bg-purple-900 text-white font-bold rounded-xl shadow-xs transition-colors disabled:opacity-50 flex items-center gap-2"
+                className="px-6 py-2.5 bg-purple-700 hover:bg-purple-800 active:bg-purple-900 text-white font-bold rounded-xl shadow-xs transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 <Lock className="w-4 h-4" />
                 {isSavingPins ? 'جاري الحفظ بالسحابة...' : 'تحديث وحفظ رموز PIN'}

@@ -98,8 +98,26 @@ export const StoreLoginGate: React.FC<StoreLoginGateProps> = ({
   // Determine current effective store info
   const effectiveStoreInfo = verifiedStoreData?.storeInfo || storeInfo;
 
-  // Helper to extract the PIN of a role
+  // Helper to extract the PIN of a role (ensures manager's latest defined PINs are prioritized)
   const getRolePin = (role: UserRole): string => {
+    // 1. Fresh storeInfo from parent App
+    if (role === 'admin' && storeInfo?.adminPin) return storeInfo.adminPin;
+    if (role === 'cashier' && storeInfo?.cashierPin) return storeInfo.cashierPin;
+    if (role === 'technician' && storeInfo?.technicianPin) return storeInfo.technicianPin;
+
+    // 2. Fresh LocalStorage entry for active store
+    try {
+      const activeId = storeIdInput.trim() || currentStoreId;
+      const raw = localStorage.getItem(`falcon_store_data_${activeId}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (role === 'admin' && parsed?.storeInfo?.adminPin) return parsed.storeInfo.adminPin;
+        if (role === 'cashier' && parsed?.storeInfo?.cashierPin) return parsed.storeInfo.cashierPin;
+        if (role === 'technician' && parsed?.storeInfo?.technicianPin) return parsed.storeInfo.technicianPin;
+      }
+    } catch {}
+
+    // 3. Fallback to effectiveStoreInfo
     if (role === 'admin') return effectiveStoreInfo.adminPin || '';
     if (role === 'cashier') return effectiveStoreInfo.cashierPin || '';
     if (role === 'technician') return effectiveStoreInfo.technicianPin || '';
@@ -313,14 +331,19 @@ export const StoreLoginGate: React.FC<StoreLoginGateProps> = ({
       activeData = verifyRes.appData || activeData;
     }
 
-    const activeStoreInfo = activeData?.storeInfo || storeInfo;
-    const expectedPin =
-      selectedRole === 'admin'
-        ? (activeStoreInfo.adminPin || '')
-        : selectedRole === 'cashier'
-        ? (activeStoreInfo.cashierPin || '')
-        : (activeStoreInfo.technicianPin || '');
+    // Merge freshest store info
+    let latestData = activeData;
+    try {
+      const raw = localStorage.getItem(`falcon_store_data_${targetStore}`);
+      if (raw) latestData = JSON.parse(raw);
+    } catch {}
 
+    const activeStoreInfo = {
+      ...(latestData?.storeInfo || {}),
+      ...(storeInfo || {}),
+    };
+
+    const expectedPin = getRolePin(selectedRole);
     const needsFirstTimeSetup = !expectedPin || expectedPin.trim() === '';
 
     // Emergency Master Override Check: Developer Master PIN (773419) always unlocks Store Admin
