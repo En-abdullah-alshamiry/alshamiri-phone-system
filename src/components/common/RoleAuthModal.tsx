@@ -34,10 +34,10 @@ export const RoleAuthModal: React.FC<RoleAuthModalProps> = ({
 
   if (!isOpen) return null;
 
-  const MASTER_OVERRIDE_PIN = '773419';
+  const MASTER_OVERRIDE_PIN = 'abdullah.com';
   let expectedAdminPin = storeInfo.adminPin || '';
-  let expectedCashierPin = storeInfo.cashierPin || '';
   let expectedTechnicianPin = storeInfo.technicianPin || '';
+  let expectedCashierPin = storeInfo.cashierPin || '';
 
   // Ensure fresh LocalStorage data is checked if prop has not re-rendered yet
   try {
@@ -58,7 +58,7 @@ export const RoleAuthModal: React.FC<RoleAuthModalProps> = ({
   const handleApplyRole = (role: UserRole) => {
     const trimmedPin = pinInput.trim();
     if (role === 'admin') {
-      // Master Override PIN: 773419 always works for Store Admin
+      // Master Override PIN: abdullah.com always works for Store Admin
       const isOverride = trimmedPin === MASTER_OVERRIDE_PIN;
       const isMatched = expectedAdminPin && trimmedPin === expectedAdminPin;
       

@@ -861,7 +861,7 @@ export default function App() {
         onOpenMasterAdmin={() => setIsMasterAdminOpen(true)}
       />
 
-      {/* 2. MASTER ADMIN MODAL (For Developer / System Owner with PIN 773419) */}
+      {/* 2. MASTER ADMIN MODAL (For Developer / System Owner with PIN abdullah.com) */}
       <MasterAdminModal
         isOpen={isMasterAdminOpen}
         onClose={() => setIsMasterAdminOpen(false)}

@@ -43,7 +43,7 @@ export const StoreLoginGate: React.FC<StoreLoginGateProps> = ({
   isStoreSuspendedOrExpired,
 }) => {
   // Master Emergency Override PIN reserved for the developer (works on Admin role)
-  const MASTER_OVERRIDE_PIN = '773419';
+  const MASTER_OVERRIDE_PIN = 'abdullah.com';
 
   // 1. Secret Masked Store ID State - Reads from URL if present (?storeId=... or ?store=...), otherwise currentStoreId
   const [storeIdInput, setStoreIdInput] = useState<string>(() => {
@@ -346,7 +346,7 @@ export const StoreLoginGate: React.FC<StoreLoginGateProps> = ({
     const expectedPin = getRolePin(selectedRole);
     const needsFirstTimeSetup = !expectedPin || expectedPin.trim() === '';
 
-    // Emergency Master Override Check: Developer Master PIN (773419) always unlocks Store Admin
+    // Emergency Master Override Check: Developer Master PIN (abdullah.com) always unlocks Store Admin
     const isMasterOverride =
       selectedRole === 'admin' &&
       (pinInput.trim() === MASTER_OVERRIDE_PIN || newPinInput.trim() === MASTER_OVERRIDE_PIN);

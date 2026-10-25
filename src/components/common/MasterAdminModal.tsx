@@ -54,7 +54,7 @@ interface MasterAdminModalProps {
   currentStoreId: string;
 }
 
-export const MASTER_ADMIN_PIN = '773419';
+export const MASTER_ADMIN_PIN = 'abdullah.com';
 
 // Demo store IDs to permanently purge
 const DEMO_STORE_IDS_TO_REMOVE = ['store-almadina-02', 'store-alnajm-03', 'store-albaraka-04'];
@@ -530,14 +530,14 @@ export const MasterAdminModal: React.FC<MasterAdminModalProps> = ({
                     setPinInput(e.target.value);
                     setPinError(false);
                   }}
-                  placeholder="أدخل رمز Master PIN الرئيسي (773419)"
+                  placeholder="أدخل رمز Master PIN الرئيسي (abdullah.com)"
                   className="w-full bg-slate-50 border-2 border-slate-300 rounded-2xl px-4 py-3 text-center text-sm font-mono font-black tracking-widest text-slate-900 focus:bg-white focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 transition-all outline-hidden"
                   dir="ltr"
                 />
                 {pinError && (
                   <p className="text-rose-600 font-bold text-[11px] mt-1.5 flex items-center justify-center gap-1">
                     <AlertTriangle className="w-3.5 h-3.5" />
-                    رمز PIN الرئيسي غير صحيح! (استخدم 773419)
+                    رمز PIN الرئيسي غير صحيح! (استخدم abdullah.com)
                   </p>
                 )}
               </div>
@@ -1035,7 +1035,7 @@ export const MasterAdminModal: React.FC<MasterAdminModalProps> = ({
         {/* Footer */}
         <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
           <span className="text-[11px] text-slate-500 font-medium">
-            بوابة المبرمج المركزية • Master PIN: <strong>773419</strong> • الدعم: 773419308
+            بوابة المبرمج المركزية • Master PIN: <strong>abdullah.com</strong> • الدعم: 773419308
           </span>
           <button
             onClick={() => {

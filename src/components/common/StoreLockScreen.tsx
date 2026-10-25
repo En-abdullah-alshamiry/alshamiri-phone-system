@@ -34,7 +34,7 @@ export const StoreLockScreen: React.FC<StoreLockScreenProps> = ({
 
   const handleDeveloperUnlock = (e: React.FormEvent) => {
     e.preventDefault();
-    if (pinInput.trim() === '773419') {
+    if (pinInput.trim() === 'abdullah.com') {
       onOpenSuperAdmin();
       setShowPinPrompt(false);
       setPinInput('');
@@ -116,7 +116,7 @@ export const StoreLockScreen: React.FC<StoreLockScreenProps> = ({
                     setPinInput(e.target.value);
                     setErrorMsg(false);
                   }}
-                  placeholder="Master PIN (773419)"
+                  placeholder="Master PIN (abdullah.com)"
                   className="flex-1 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-center text-xs font-mono font-black"
                   dir="ltr"
                 />
